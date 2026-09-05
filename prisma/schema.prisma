@@ -1,0 +1,312 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+}
+
+// =======================
+// ENUMS
+// =======================
+
+enum Role {
+  CUSTOMER
+  BUSINESS
+  RIDER
+  ADMIN
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAID
+  ACCEPTED
+  PREPARING
+  READY_FOR_PICKUP
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum RiderStatus {
+  OFFLINE
+  ONLINE
+}
+
+// =======================
+// CORE & USERS
+// =======================
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  phone     String?  @unique
+  password  String
+  role      Role
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  business             Business?
+  rider                Rider?
+  addresses            Address[]
+  carts                Cart[]
+  orders               Order[]
+  wallets              Wallet[]
+  verificationRecords  VerificationRecord[]
+  notifications        Notification[]
+}
+
+model Business {
+  id                 String             @id @default(uuid())
+  userId             String             @unique
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name               String
+  slug               String             @unique
+  description        String?
+  logoUrl            String?
+  coverImageUrl      String?
+  locationLat        Float?
+  locationLng        Float?
+  address            String?
+  verificationStatus VerificationStatus @default(PENDING)
+  isActive           Boolean            @default(true)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  products           Product[]
+  orders             Order[]
+}
+
+model Rider {
+  id                 String             @id @default(uuid())
+  userId             String             @unique
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status             RiderStatus        @default(OFFLINE)
+  verificationStatus VerificationStatus @default(PENDING)
+  lastLocationLat    Float?
+  lastLocationLng    Float?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  deliveries         Delivery[]
+}
+
+model Address {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  street    String
+  city      String
+  state     String
+  country   String   @default("Nigeria")
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders    Order[]
+}
+
+// =======================
+// COMMERCE
+// =======================
+
+model Product {
+  id          String   @id @default(uuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  price       Float
+  isAvailable Boolean  @default(true)
+  isDeleted   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  images      ProductImage[]
+  cartItems   CartItem[]
+  orderItems  OrderItem[]
+}
+
+model ProductImage {
+  id        String   @id @default(uuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Cart {
+  id        String   @id @default(uuid())
+  userId    String?  // Nullable for guest carts
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  guestId   String?  @unique // Session ID for guest carts
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items     CartItem[]
+}
+
+model CartItem {
+  id        String   @id @default(uuid())
+  cartId    String
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cartId, productId])
+}
+
+// =======================
+// ORDERS & DELIVERY
+// =======================
+
+model Order {
+  id             String      @id @default(uuid())
+  customerId     String
+  customer       User        @relation(fields: [customerId], references: [id])
+  businessId     String
+  business       Business    @relation(fields: [businessId], references: [id])
+  addressId      String
+  address        Address     @relation(fields: [addressId], references: [id])
+  status         OrderStatus @default(PENDING_PAYMENT)
+  itemsTotal     Float
+  deliveryFee    Float
+  totalAmount    Float
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  items          OrderItem[]
+  payment        Payment?
+  delivery       Delivery?
+}
+
+model OrderItem {
+  id           String   @id @default(uuid())
+  orderId      String
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product  @relation(fields: [productId], references: [id])
+  quantity     Int
+  priceAtOrder Float    // Snapshot of price at the time of order
+  createdAt    DateTime @default(now())
+}
+
+model Delivery {
+  id          String   @id @default(uuid())
+  orderId     String   @unique
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  riderId     String?
+  rider       Rider?   @relation(fields: [riderId], references: [id], onDelete: SetNull)
+  pinHash     String?
+  failedAttempts Int   @default(0)
+  pickupTime  DateTime?
+  dropoffTime DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// =======================
+// FINANCE & PAYMENTS
+// =======================
+
+model Payment {
+  id            String   @id @default(uuid())
+  orderId       String   @unique
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  amount        Float
+  provider      String   @default("PAYSTACK")
+  reference     String   @unique
+  status        String   @default("PENDING") // PENDING, SUCCESS, FAILED
+  verifiedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Wallet {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance     Float    @default(0.0)
+  currency    String   @default("NGN")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  withdrawals Withdrawal[]
+}
+
+model LedgerEntry {
+  id          String   @id @default(uuid())
+  type        String   // ORDER_DELIVERY_CREDIT, PLATFORM_COMMISSION, WITHDRAWAL, REFUND
+  amount      Float
+  currency    String   @default("NGN")
+  referenceId String?  // ID of related Order, Withdrawal, etc.
+  description String?
+  createdAt   DateTime @default(now())
+}
+
+model Withdrawal {
+  id          String   @id @default(uuid())
+  walletId    String
+  wallet      Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  amount      Float
+  status      String   @default("PENDING") // PENDING, APPROVED, REJECTED, PROCESSED
+  processedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// =======================
+// OPERATIONS
+// =======================
+
+model VerificationRecord {
+  id           String             @id @default(uuid())
+  userId       String
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documentType String             // ID_CARD, PASSPORT, SELFIE, VEHICLE_REG
+  documentUrl  String             // S3 reference
+  status       VerificationStatus @default(PENDING)
+  reviewNotes  String?
+  reviewedBy   String?            // Admin user ID
+  reviewedAt   DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   // EMAIL, IN_APP
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String
+  actorId   String
+  targetId  String?
+  metadata  String?  // JSON stringified payload
+  createdAt DateTime @default(now())
+}
+
+model PlatformSetting {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     String   // Stored as string, cast as needed
+  updatedAt DateTime @updatedAt
+}
