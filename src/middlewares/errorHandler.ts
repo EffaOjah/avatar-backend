@@ -11,6 +11,10 @@ export const errorHandler = (err: Error, req: Request, res: Response, next: Next
     statusCode = err.statusCode;
     code = err.code;
     message = err.message;
+  } else if (err.name === 'MulterError') {
+    statusCode = 400;
+    code = 'BAD_REQUEST';
+    message = err.message;
   }
 
   // Log error

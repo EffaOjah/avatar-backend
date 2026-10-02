@@ -30,4 +30,51 @@ export class UsersController {
       res.status(400).json({ error: error.message });
     }
   }
+
+  static async becomeBusiness(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+      const profile = await UsersService.becomeBusiness(userId, req.body);
+      res.status(201).json({ message: 'Successfully converted to a business account', profile });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  static async uploadAvatar(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+      if (!req.file) { res.status(400).json({ error: 'No image file provided' }); return; }
+      const profile = await UsersService.uploadAvatar(userId, req.file);
+      res.status(200).json({ message: 'Avatar uploaded successfully', profile });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  static async uploadBusinessLogo(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+      if (!req.file) { res.status(400).json({ error: 'No image file provided' }); return; }
+      const profile = await UsersService.uploadBusinessImage(userId, req.file, 'logoUrl');
+      res.status(200).json({ message: 'Business logo uploaded successfully', profile });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  static async uploadBusinessCover(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) { res.status(401).json({ error: 'Unauthorized' }); return; }
+      if (!req.file) { res.status(400).json({ error: 'No image file provided' }); return; }
+      const profile = await UsersService.uploadBusinessImage(userId, req.file, 'coverImageUrl');
+      res.status(200).json({ message: 'Business cover uploaded successfully', profile });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
 }

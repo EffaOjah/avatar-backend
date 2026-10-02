@@ -50,6 +50,7 @@ model User {
   password  String
   role      Role
   isActive  Boolean  @default(false)
+  avatarUrl String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -117,13 +118,30 @@ model Address {
 // COMMERCE
 // =======================
 
+model Category {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  slug        String    @unique
+  description String?
+  imageUrl    String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  products    Product[]
+}
+
 model Product {
   id          String   @id @default(uuid())
   businessId  String
   business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id])
   name        String
   description String?
   price       Float
+  inventory   Int      @default(0)
+  variants    Json?    // e.g., [{ "color": "Red", "size": "L" }]
   isAvailable Boolean  @default(true)
   isDeleted   Boolean  @default(false)
   createdAt   DateTime @default(now())

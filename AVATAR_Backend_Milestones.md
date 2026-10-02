@@ -12,7 +12,7 @@ Node.js + Express + TypeScript. Sequenced by dependency, not dates.
 
 ## Phase 1 — MVP Core Marketplace
 - [x] 1.1 Auth & profiles (all 4 roles): registration, login, OTP, profile CRUD (Customers, Businesses, Riders), password reset
-- [ ] 1.2 Business & product catalog: business profile, categories, products (CRUD, Pricing, Images, Ownership), variants, inventory, image upload, business slug uniqueness
+- [x] 1.2 Business & product catalog: business profile, categories, products (CRUD, Pricing, Images, Ownership), variants, inventory, image upload, business slug uniqueness
 - [ ] 1.3 Discovery & search: list/filter/sort, Postgres full-text search, public SEO endpoints
 - [ ] 1.4 Cart & checkout: guest & authenticated cart service, address book, price/fee calculation, order creation transaction, guest to authenticated cart merging, cart cleanup background job
 - [ ] 1.5 Order lifecycle: state machine enforcement (created → paid → preparing → rider_accepted → on_the_way → delivered/cancelled), status history, admin force cancellation

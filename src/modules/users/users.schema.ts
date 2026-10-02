@@ -17,3 +17,11 @@ export const updateProfileSchema = z.object({
     }).optional(),
   }),
 });
+
+export const becomeBusinessSchema = z.object({
+  body: z.object({
+    name: z.string().min(2, 'Business name must be at least 2 characters'),
+    description: z.string().optional(),
+    address: z.string().optional(),
+  }),
+});

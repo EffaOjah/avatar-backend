@@ -7,6 +7,8 @@ import requestLogger from './middlewares/requestLogger';
 import { errorHandler } from './middlewares/errorHandler';
 import authRoutes from './modules/auth/auth.routes';
 import usersRoutes from './modules/users/users.routes';
+import categoriesRoutes from './modules/categories/categories.routes';
+import productsRoutes from './modules/products/products.routes';
 import { setupSwagger } from './config/swagger';
 
 const app: Application = express();
@@ -30,6 +32,8 @@ setupSwagger(app);
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
+app.use('/api/categories', categoriesRoutes);
+app.use('/api/products', productsRoutes);
 
 // Health check endpoint
 /**
