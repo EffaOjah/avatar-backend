@@ -16,4 +16,18 @@ export class UsersController {
       res.status(404).json({ error: error.message });
     }
   }
+
+  static async updateProfile(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+      const profile = await UsersService.updateUserProfile(userId, req.body);
+      res.status(200).json({ message: 'Profile updated successfully', profile });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
 }

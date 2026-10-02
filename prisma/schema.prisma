@@ -49,7 +49,7 @@ model User {
   phone     String?  @unique
   password  String
   role      Role
-  isActive  Boolean  @default(true)
+  isActive  Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -309,4 +309,24 @@ model PlatformSetting {
   key       String   @unique
   value     String   // Stored as string, cast as needed
   updatedAt DateTime @updatedAt
+}
+
+// =======================
+// AUTHENTICATION
+// =======================
+
+model OtpCode {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  code      String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 }

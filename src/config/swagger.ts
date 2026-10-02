@@ -115,7 +115,7 @@ const options = {
       },
       '/api/auth/otp/request': {
         post: {
-          summary: 'Request an OTP',
+          summary: 'Request an OTP via Email',
           tags: ['Auth'],
           requestBody: {
             required: true,
@@ -123,8 +123,8 @@ const options = {
               'application/json': {
                 schema: {
                   type: 'object',
-                  required: ['userId'],
-                  properties: { userId: { type: 'string' } },
+                  required: ['email'],
+                  properties: { email: { type: 'string' } },
                 },
               },
             },
@@ -132,6 +132,78 @@ const options = {
           responses: {
             '200': { description: 'OTP sent successfully' },
             '400': { description: 'Bad request' },
+          },
+        },
+      },
+      '/api/auth/otp/verify': {
+        post: {
+          summary: 'Verify OTP code',
+          tags: ['Auth'],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['email', 'code'],
+                  properties: {
+                    email: { type: 'string' },
+                    code: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'OTP verified successfully' },
+            '400': { description: 'Bad request' },
+          },
+        },
+      },
+      '/api/auth/forgot-password': {
+        post: {
+          summary: 'Request a password reset link',
+          tags: ['Auth'],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['email'],
+                  properties: { email: { type: 'string', format: 'email' } },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Reset link sent (always returns success to prevent user enumeration)' },
+            '400': { description: 'Bad request' },
+          },
+        },
+      },
+      '/api/auth/reset-password': {
+        post: {
+          summary: 'Reset password using token from email',
+          tags: ['Auth'],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['token', 'newPassword'],
+                  properties: {
+                    token: { type: 'string', description: 'Token received in the reset email link' },
+                    newPassword: { type: 'string', minLength: 6 },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Password reset successfully' },
+            '400': { description: 'Invalid or expired token' },
           },
         },
       },
@@ -144,6 +216,42 @@ const options = {
             '200': { description: 'Current user profile' },
             '401': { description: 'Unauthorized' },
             '404': { description: 'User not found' },
+          },
+        },
+        put: {
+          summary: 'Update current user profile',
+          tags: ['Users'],
+          security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    phone: { type: 'string' },
+                    business: {
+                      type: 'object',
+                      properties: {
+                        name: { type: 'string' },
+                        description: { type: 'string' },
+                        logoUrl: { type: 'string' },
+                        coverImageUrl: { type: 'string' },
+                        address: { type: 'string' },
+                        locationLat: { type: 'number' },
+                        locationLng: { type: 'number' },
+                      },
+                    },
+                    rider: { type: 'object' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Profile updated successfully' },
+            '400': { description: 'Bad request' },
+            '401': { description: 'Unauthorized' },
           },
         },
       },

@@ -32,10 +32,39 @@ export class AuthController {
   }
 
   static async requestOtp(req: Request, res: Response) {
-    // Assuming user is authenticated via some partial means or we just take email
     try {
-      const { userId } = req.body;
-      const response = await AuthService.requestOtp(userId);
+      const { email } = req.body;
+      const response = await AuthService.requestOtp(email);
+      res.status(200).json(response);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  static async verifyOtp(req: Request, res: Response) {
+    try {
+      const { email, code } = req.body;
+      const response = await AuthService.verifyOtp(email, code);
+      res.status(200).json(response);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  static async forgotPassword(req: Request, res: Response) {
+    try {
+      const { email } = req.body;
+      const response = await AuthService.forgotPassword(email);
+      res.status(200).json(response);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  static async resetPassword(req: Request, res: Response) {
+    try {
+      const { token, newPassword } = req.body;
+      const response = await AuthService.resetPassword(token, newPassword);
       res.status(200).json(response);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
