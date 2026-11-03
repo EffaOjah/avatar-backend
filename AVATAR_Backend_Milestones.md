@@ -22,7 +22,7 @@ Node.js + Express + TypeScript. Sequenced by dependency, not dates.
 - [ ] 1.9 Order messaging: order-scoped chat, server-enforced 2-message cap, rider auto-join/leave
 - [ ] 1.10 Notifications & Settings: in-app records (pull-based list) + push adapter, transactional emails via BullMQ, platform settings management
 - [ ] 1.11 Reviews (basic): post-delivery product/business review
-- [ ] 1.12 Admin foundations: read-only users/businesses/orders views, dashboard endpoints, verification approve/reject, health/readiness endpoints (`/health`, `/ready`)
+- [x] 1.12 Admin foundations: read-only users/businesses/orders views, dashboard endpoints, verification approve/reject, health/readiness endpoints (`/health`, `/ready`)
 - [ ] 1.13 Support channel: separate ticket + chat from order chat
 - [ ] 1.14 Storage & Verifications: S3 Storage Integration for Verification Documents/Images (Business & Rider ID/Selfies), file upload validation (MIME, size, auth)
 

@@ -1,0 +1,576 @@
+import { Response } from 'express';
+import { AdminRequest } from './admin.middleware';
+import {
+  AdminAuthService,
+  AdminStaffService,
+  ApprovalService,
+} from './admin.service';
+import { AdminUsersService } from './admin-users.service';
+import { AdminBusinessesService } from './admin-businesses.service';
+import { AdminRidersService } from './admin-riders.service';
+import { AdminOrdersService } from './admin-orders.service';
+import { AdminSettingsService, AdminAuditService, AdminDashboardService } from './admin-settings.service';
+
+/** Thin wrapper: send success response */
+const ok = (res: Response, data: unknown, status = 200) =>
+  res.status(status).json({ success: true, data });
+
+/** Thin wrapper: send error response */
+const fail = (res: Response, error: any) => {
+  const status = error?.status ?? 500;
+  const code = error?.code ?? 'INTERNAL_ERROR';
+  const message = error?.message ?? 'An unexpected error occurred';
+  return res.status(status).json({
+    success: false,
+    error: { code, message },
+  });
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTH
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminAuthController {
+  static async login(req: AdminRequest, res: Response) {
+    try {
+      const { email, password } = req.body;
+      const ip = req.ip;
+      const userAgent = req.headers['user-agent'];
+      const result = await AdminAuthService.loginStep1(email, password, ip, userAgent);
+      ok(res, result);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async verifyMfa(req: AdminRequest, res: Response) {
+    try {
+      const { mfaToken, totp } = req.body;
+      const ip = req.ip;
+      const userAgent = req.headers['user-agent'];
+      const result = await AdminAuthService.loginStep2(mfaToken, totp, ip, userAgent);
+
+      // Set httpOnly cookie
+      res.cookie('adminAccessToken', result.accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        maxAge: 15 * 60 * 1000, // 15 min
+      });
+      res.cookie('adminRefreshToken', result.refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      });
+
+      ok(res, { admin: result.admin });
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async refresh(req: AdminRequest, res: Response) {
+    try {
+      const refreshToken =
+        req.cookies?.adminRefreshToken ||
+        (req.headers['x-refresh-token'] as string | undefined);
+      if (!refreshToken) {
+        res.status(401).json({ success: false, error: { code: 'MISSING_REFRESH_TOKEN', message: 'No refresh token' } });
+        return;
+      }
+      const result = await AdminAuthService.refreshTokens(refreshToken, req.ip, req.headers['user-agent']);
+      res.cookie('adminAccessToken', result.accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        maxAge: 15 * 60 * 1000,
+      });
+      res.cookie('adminRefreshToken', result.refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+      ok(res, { message: 'Tokens refreshed' });
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async logout(req: AdminRequest, res: Response) {
+    try {
+      if (req.admin) {
+        await AdminAuthService.logout(req.admin.sessionId, req.admin.id);
+      }
+      res.clearCookie('adminAccessToken');
+      res.clearCookie('adminRefreshToken');
+      ok(res, { message: 'Logged out' });
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async getMe(req: AdminRequest, res: Response) {
+    try {
+      const data = await AdminAuthService.getMe(req.admin!.id);
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async requestPasswordReset(req: AdminRequest, res: Response) {
+    try {
+      const result = await AdminAuthService.requestPasswordReset(req.body.email);
+      ok(res, result);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async resetPassword(req: AdminRequest, res: Response) {
+    try {
+      const { token, newPassword } = req.body;
+      const result = await AdminAuthService.resetPassword(token, newPassword, req.ip);
+      ok(res, result);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async listSessions(req: AdminRequest, res: Response) {
+    try {
+      const data = await AdminAuthService.listSessions(req.admin!.id);
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async revokeSession(req: AdminRequest, res: Response) {
+    try {
+      const sessionId = req.params.sessionId as string;
+      await AdminAuthService.revokeSession(sessionId, req.admin!.id);
+      ok(res, { message: 'Session revoked' });
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STAFF MANAGEMENT
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminStaffController {
+  static async listAdmins(req: AdminRequest, res: Response) {
+    try {
+      ok(res, await AdminStaffService.listAdmins());
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async inviteAdmin(req: AdminRequest, res: Response) {
+    try {
+      const admin = await AdminStaffService.inviteAdmin(req.body, req.admin!.id, req.ip);
+      ok(res, admin, 201);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async requestRoleChange(req: AdminRequest, res: Response) {
+    try {
+      const id = req.params.id as string;
+      const request = await AdminStaffService.requestRoleChange(
+        id,
+        req.body.role,
+        req.body.reason,
+        req.admin!.id,
+        req.ip,
+      );
+      ok(res, request, 202);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async requestDeactivation(req: AdminRequest, res: Response) {
+    try {
+      const id = req.params.id as string;
+      const request = await AdminStaffService.requestDeactivation(
+        id,
+        req.body.reason,
+        req.admin!.id,
+        req.ip,
+      );
+      ok(res, request, 202);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async resetMfa(req: AdminRequest, res: Response) {
+    try {
+      const id = req.params.id as string;
+      const result = await AdminStaffService.resetMfa(id, req.admin!.id, req.ip);
+      ok(res, result);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// APPROVALS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminApprovalsController {
+  static async listPending(req: AdminRequest, res: Response) {
+    try {
+      const isSA = req.admin!.role === 'SUPER_ADMIN';
+      ok(res, await ApprovalService.listPending(req.admin!.id, isSA));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async decide(req: AdminRequest, res: Response) {
+    try {
+      const id = req.params.id as string;
+      const result = await ApprovalService.decide(
+        id,
+        req.body.decision,
+        req.body.reason,
+        req.admin!.id,
+        req.ip,
+      );
+      ok(res, result);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// USERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminUsersController {
+  static async listUsers(req: AdminRequest, res: Response) {
+    try {
+      ok(res, await AdminUsersService.listUsers(req.query as any, req.admin!.role));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async getUserById(req: AdminRequest, res: Response) {
+    try {
+      const id = req.params.id as string;
+      ok(res, await AdminUsersService.getUserById(id));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async suspendUser(req: AdminRequest, res: Response) {
+    try {
+      const id = req.params.id as string;
+      ok(res, await AdminUsersService.suspendUser(
+        id, req.body.reason, req.admin!.id,
+        req.admin!.role, req.body.until, req.ip, req.admin!.requestId,
+      ));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async reactivateUser(req: AdminRequest, res: Response) {
+    try {
+      const id = req.params.id as string;
+      ok(res, await AdminUsersService.reactivateUser(
+        id, req.body.reason, req.admin!.id,
+        req.admin!.role, req.ip, req.admin!.requestId,
+      ));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async forceLogout(req: AdminRequest, res: Response) {
+    try {
+      const id = req.params.id as string;
+      ok(res, await AdminUsersService.forceLogout(
+        id, req.admin!.id, req.admin!.role, req.ip, req.admin!.requestId,
+      ));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async deleteUser(req: AdminRequest, res: Response) {
+    try {
+      const id = req.params.id as string;
+      ok(res, await AdminUsersService.softDeleteUser(
+        id, req.body.reason, req.admin!.id,
+        req.admin!.role, req.ip, req.admin!.requestId,
+      ));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BUSINESSES
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminBusinessesController {
+  static async listBusinesses(req: AdminRequest, res: Response) {
+    try {
+      ok(res, await AdminBusinessesService.listBusinesses(req.query as any));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async getBusinessById(req: AdminRequest, res: Response) {
+    try {
+      const id = req.params.id as string;
+      ok(res, await AdminBusinessesService.getBusinessById(id));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async approveBusiness(req: AdminRequest, res: Response) {
+    try {
+      const id = req.params.id as string;
+      ok(res, await AdminBusinessesService.approveBusiness(
+        id, req.admin!.id, req.admin!.role, req.ip, req.admin!.requestId,
+      ));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async rejectBusiness(req: AdminRequest, res: Response) {
+    try {
+      const id = req.params.id as string;
+      ok(res, await AdminBusinessesService.rejectBusiness(
+        id, req.body.reason, req.admin!.id,
+        req.admin!.role, req.ip, req.admin!.requestId,
+      ));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async suspendBusiness(req: AdminRequest, res: Response) {
+    try {
+      const id = req.params.id as string;
+      ok(res, await AdminBusinessesService.suspendBusiness(
+        id, req.body.reason, req.body.permanent ?? false,
+        req.admin!.id, req.admin!.role, req.ip, req.admin!.requestId,
+      ));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async reactivateBusiness(req: AdminRequest, res: Response) {
+    try {
+      const id = req.params.id as string;
+      ok(res, await AdminBusinessesService.reactivateBusiness(
+        id, req.body.reason, req.admin!.id,
+        req.admin!.role, req.ip, req.admin!.requestId,
+      ));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RIDERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminRidersController {
+  static async listRiders(req: AdminRequest, res: Response) {
+    try {
+      ok(res, await AdminRidersService.listRiders(req.query as any));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async getRiderById(req: AdminRequest, res: Response) {
+    try {
+      const id = req.params.id as string;
+      ok(res, await AdminRidersService.getRiderById(id));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async approveRider(req: AdminRequest, res: Response) {
+    try {
+      const id = req.params.id as string;
+      ok(res, await AdminRidersService.approveRider(
+        id, req.admin!.id, req.admin!.role, req.ip, req.admin!.requestId,
+      ));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async rejectRider(req: AdminRequest, res: Response) {
+    try {
+      const id = req.params.id as string;
+      ok(res, await AdminRidersService.rejectRider(
+        id, req.body.reason, req.admin!.id,
+        req.admin!.role, req.ip, req.admin!.requestId,
+      ));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async suspendRider(req: AdminRequest, res: Response) {
+    try {
+      const id = req.params.id as string;
+      ok(res, await AdminRidersService.suspendRider(
+        id, req.body.reason, req.body.permanent ?? false,
+        req.admin!.id, req.admin!.role, req.ip, req.admin!.requestId,
+      ));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async reactivateRider(req: AdminRequest, res: Response) {
+    try {
+      const id = req.params.id as string;
+      ok(res, await AdminRidersService.reactivateRider(
+        id, req.body.reason, req.admin!.id,
+        req.admin!.role, req.ip, req.admin!.requestId,
+      ));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ORDERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminOrdersController {
+  static async listOrders(req: AdminRequest, res: Response) {
+    try {
+      ok(res, await AdminOrdersService.listOrders(req.query as any));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async getOrderById(req: AdminRequest, res: Response) {
+    try {
+      const id = req.params.id as string;
+      ok(res, await AdminOrdersService.getOrderById(id));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async cancelOrder(req: AdminRequest, res: Response) {
+    try {
+      const id = req.params.id as string;
+      ok(res, await AdminOrdersService.cancelOrder(
+        id, req.body.reason, req.admin!.id,
+        req.admin!.role, req.ip, req.admin!.requestId,
+      ));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async overrideStatus(req: AdminRequest, res: Response) {
+    try {
+      const id = req.params.id as string;
+      ok(res, await AdminOrdersService.overrideStatus(
+        id, req.body.status, req.body.reason,
+        req.admin!.id, req.admin!.role, req.ip, req.admin!.requestId,
+      ));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SETTINGS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminSettingsController {
+  static async listSettings(req: AdminRequest, res: Response) {
+    try {
+      ok(res, await AdminSettingsService.listSettings());
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async getSetting(req: AdminRequest, res: Response) {
+    try {
+      const key = req.params.key as string;
+      ok(res, await AdminSettingsService.getSetting(key));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async updateSetting(req: AdminRequest, res: Response) {
+    try {
+      const key = req.params.key as string;
+      ok(res, await AdminSettingsService.updateSetting(
+        key, req.body.value, req.body.reason,
+        req.admin!.id, req.admin!.role, req.ip, req.admin!.requestId,
+      ));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUDIT LOGS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminAuditController {
+  static async listAuditLogs(req: AdminRequest, res: Response) {
+    try {
+      const isSA = req.admin!.role === 'SUPER_ADMIN';
+      ok(res, await AdminAuditService.listAuditLogs(req.query as any, req.admin!.id, isSA));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DASHBOARD
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminDashboardController {
+  static async getDashboard(req: AdminRequest, res: Response) {
+    try {
+      ok(res, await AdminDashboardService.getDashboard());
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}

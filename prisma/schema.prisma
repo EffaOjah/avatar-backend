@@ -17,6 +17,37 @@ enum Role {
   ADMIN
 }
 
+enum AdminRole {
+  SUPER_ADMIN
+  OPS_ADMIN
+  FINANCE_ADMIN
+  SUPPORT_ADMIN
+  MODERATION_ADMIN
+}
+
+enum AdminStatus {
+  INVITED
+  ACTIVE
+  DEACTIVATED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ApprovalType {
+  REFUND
+  WALLET_ADJUSTMENT
+  PAYOUT_BATCH
+  ADMIN_ROLE_CHANGE
+  ADMIN_DEACTIVATION
+  RIDER_PERMANENT_SUSPENSION
+  BUSINESS_PERMANENT_SUSPENSION
+  ORDER_STATUS_OVERRIDE
+}
+
 enum OrderStatus {
   PENDING_PAYMENT
   PAID
@@ -314,12 +345,23 @@ model Notification {
 }
 
 model AuditLog {
-  id        String   @id @default(uuid())
-  action    String
-  actorId   String
-  targetId  String?
-  metadata  String?  // JSON stringified payload
-  createdAt DateTime @default(now())
+  id          String   @id @default(uuid())
+  action      String   // e.g. "refund.approve", "user.suspend"
+  actorId     String   // admin_user.id or user.id
+  actorRole   String?  // role at the time of action
+  entityType  String?  // e.g. "User", "Order", "Business"
+  entityId    String?
+  before      String?  // JSON snapshot (sensitive fields redacted)
+  after       String?  // JSON snapshot
+  reason      String?
+  ip          String?
+  userAgent   String?
+  requestId   String?
+  createdAt   DateTime @default(now())
+
+  @@index([actorId])
+  @@index([entityId])
+  @@index([createdAt])
 }
 
 model PlatformSetting {
@@ -327,6 +369,68 @@ model PlatformSetting {
   key       String   @unique
   value     String   // Stored as string, cast as needed
   updatedAt DateTime @updatedAt
+}
+
+// =======================
+// ADMIN CONSOLE
+// =======================
+
+model AdminUser {
+  id             String      @id @default(uuid())
+  email          String      @unique
+  name           String
+  role           AdminRole
+  status         AdminStatus @default(INVITED)
+  passwordHash   String?
+  mfaSecret      String?     // Encrypted at rest
+  mfaEnabled     Boolean     @default(false)
+  lastLoginAt    DateTime?
+  createdBy      String?     // AdminUser.id who invited this admin
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  sessions       AdminSession[]
+  approvalsMade  ApprovalRequest[] @relation("ApprovalRequester")
+  approvalsGiven ApprovalRequest[] @relation("ApprovalDecider")
+
+  @@index([email])
+  @@index([role])
+  @@index([status])
+}
+
+model AdminSession {
+  id          String    @id @default(uuid())
+  adminId     String
+  admin       AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  refreshHash String
+  familyId    String    // For rotation detection (refresh token family)
+  ip          String?
+  userAgent   String?
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([adminId])
+  @@index([familyId])
+}
+
+model ApprovalRequest {
+  id             String         @id @default(uuid())
+  type           ApprovalType
+  payload        String         // JSON with context for the approver
+  requestedBy    String
+  requester      AdminUser      @relation("ApprovalRequester", fields: [requestedBy], references: [id])
+  status         ApprovalStatus @default(PENDING)
+  decidedBy      String?
+  decider        AdminUser?     @relation("ApprovalDecider", fields: [decidedBy], references: [id])
+  decidedAt      DateTime?
+  decisionReason String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([status])
+  @@index([requestedBy])
+  @@index([type])
 }
 
 // =======================
