@@ -11,6 +11,7 @@ import categoriesRoutes from './modules/categories/categories.routes';
 import productsRoutes from './modules/products/products.routes';
 import adminRoutes from './modules/admin/admin.routes';
 import { setupSwagger } from './config/swagger';
+import { setupAdminSwagger } from './config/adminSwagger';
 
 const app: Application = express();
 
@@ -29,6 +30,7 @@ app.use(requestLogger);
 
 // Setup Swagger UI
 setupSwagger(app);
+setupAdminSwagger(app);
 
 // API Routes
 app.use('/api/auth', authRoutes);

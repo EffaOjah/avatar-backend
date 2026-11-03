@@ -1,0 +1,1124 @@
+import swaggerJSDoc from 'swagger-jsdoc';
+import swaggerUi from 'swagger-ui-express';
+import { Application } from 'express';
+
+export const adminSwaggerOptions = {
+  definition: {
+    openapi: '3.0.0',
+    info: {
+      title: 'AVATAR Admin Console API Documentation',
+      version: '1.0.0',
+      description:
+        'Technical Requirements Document (TRD) compliant API documentation for the AVATAR Admin Console. Enforces Role-Based Access Control (RBAC) across Super Admin, Operations, Finance, Support, and Moderation.',
+      contact: {
+        name: 'AVATAR Platform Engineering',
+      },
+    },
+    servers: [
+      {
+        url: 'http://localhost:3000/api/v1/admin',
+        description: 'Local Development Server (Base: /api/v1/admin)',
+      },
+    ],
+    components: {
+      securitySchemes: {
+        adminBearerAuth: {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+          description: '15-minute Admin JWT Access Token passed in the Authorization header.',
+        },
+        adminCookieAuth: {
+          type: 'apiKey',
+          in: 'cookie',
+          name: 'adminAccessToken',
+          description: '15-minute Admin JWT Access Token stored in httpOnly, Secure cookie.',
+        },
+        adminRefreshToken: {
+          type: 'apiKey',
+          in: 'header',
+          name: 'x-refresh-token',
+          description: '7-day Admin Refresh Token used for token rotation.',
+        },
+      },
+      schemas: {
+        StandardSuccessResponse: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean', example: true },
+            data: { type: 'object' },
+            meta: { type: 'object' },
+          },
+        },
+        StandardErrorResponse: {
+          type: 'object',
+          properties: {
+            success: { type: 'boolean', example: false },
+            error: {
+              type: 'object',
+              properties: {
+                code: { type: 'string', example: 'FORBIDDEN' },
+                message: { type: 'string', example: 'Missing required permission' },
+              },
+            },
+            requestId: { type: 'string', example: 'f81d4fae-7dec-11d0-a765-00a0c91e6bf6' },
+          },
+        },
+        AdminUser: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            email: { type: 'string', format: 'email' },
+            name: { type: 'string' },
+            role: {
+              type: 'string',
+              enum: ['SUPER_ADMIN', 'OPS_ADMIN', 'FINANCE_ADMIN', 'SUPPORT_ADMIN', 'MODERATION_ADMIN'],
+            },
+            status: { type: 'string', enum: ['INVITED', 'ACTIVE', 'DEACTIVATED'] },
+            mfaEnabled: { type: 'boolean' },
+            lastLoginAt: { type: 'string', format: 'date-time', nullable: true },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        ApprovalRequest: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            type: {
+              type: 'string',
+              enum: [
+                'REFUND',
+                'WALLET_ADJUSTMENT',
+                'PAYOUT_BATCH',
+                'ADMIN_ROLE_CHANGE',
+                'ADMIN_DEACTIVATION',
+                'RIDER_PERMANENT_SUSPENSION',
+                'BUSINESS_PERMANENT_SUSPENSION',
+                'ORDER_STATUS_OVERRIDE',
+              ],
+            },
+            payload: { type: 'string', description: 'JSON stringified context for checkers' },
+            status: { type: 'string', enum: ['PENDING', 'APPROVED', 'REJECTED'] },
+            requestedBy: { type: 'string', format: 'uuid' },
+            decidedBy: { type: 'string', format: 'uuid', nullable: true },
+            decidedAt: { type: 'string', format: 'date-time', nullable: true },
+            decisionReason: { type: 'string', nullable: true },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        PlatformSetting: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            key: { type: 'string', example: 'commission_rate_default' },
+            value: { type: 'string', example: '0.10' },
+            updatedAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        AuditLog: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            action: { type: 'string', example: 'user.suspend' },
+            actorId: { type: 'string', format: 'uuid' },
+            actorRole: { type: 'string', example: 'SUPER_ADMIN' },
+            entityType: { type: 'string', example: 'User' },
+            entityId: { type: 'string', format: 'uuid' },
+            before: { type: 'string', description: 'Redacted JSON snapshot before mutation' },
+            after: { type: 'string', description: 'Redacted JSON snapshot after mutation' },
+            reason: { type: 'string' },
+            ip: { type: 'string' },
+            requestId: { type: 'string' },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
+      },
+    },
+    tags: [
+      { name: 'Admin Auth', description: 'Admin authentication, 2-step TOTP MFA, session rotation, and password management' },
+      { name: 'Admin Staff Management', description: 'Staff invitation, role assignments, maker-checker requests, and MFA resets' },
+      { name: 'Admin Approvals', description: 'Maker-checker approval engine for sensitive cross-platform actions' },
+      { name: 'Admin Users', description: 'Platform customer and user oversight with role-aware PII masking and soft-deletes' },
+      { name: 'Admin Businesses', description: 'Business onboarding verification, operational status, and suspension' },
+      { name: 'Admin Riders', description: 'Rider KYC review, roster status, and operational actions' },
+      { name: 'Admin Orders', description: 'Live order tracking, cancellations, and Super Admin status overrides' },
+      { name: 'Admin Platform Settings', description: 'Versioned system settings and operational parameters (Super Admin only)' },
+      { name: 'Admin Audit Logs', description: 'Append-only audit trail search and security compliance inspector' },
+      { name: 'Admin Dashboard', description: 'High-level real-time operational and platform KPIs' },
+    ],
+    paths: {
+      '/auth/login': {
+        post: {
+          summary: 'Admin Login Step 1 (Password validation)',
+          description: 'Validates staff email and password. Returns an MFA challenge token required for Step 2.',
+          tags: ['Admin Auth'],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['email', 'password'],
+                  properties: {
+                    email: { type: 'string', format: 'email', example: 'superadmin@avatar.com' },
+                    password: { type: 'string', example: 'SuperAdmin@Avatar2026!' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': {
+              description: 'Credentials valid, MFA challenge issued',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: true },
+                      data: {
+                        type: 'object',
+                        properties: {
+                          mfaRequired: { type: 'boolean', example: true },
+                          mfaToken: { type: 'string', description: 'Short-lived challenge token' },
+                          mfaEnabled: { type: 'boolean', example: false },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            '401': { description: 'Invalid credentials' },
+            '403': { description: 'Account deactivated' },
+          },
+        },
+      },
+      '/auth/mfa/verify': {
+        post: {
+          summary: 'Admin Login Step 2 (TOTP Verification & Session Issuance)',
+          description: 'Verifies 6-digit TOTP code and issues 15-minute access token and rotating 7-day refresh token in httpOnly cookies.',
+          tags: ['Admin Auth'],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['mfaToken', 'totp'],
+                  properties: {
+                    mfaToken: { type: 'string', description: 'Challenge token from Step 1' },
+                    totp: { type: 'string', example: '123456', minLength: 6, maxLength: 6 },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': {
+              description: 'Successfully authenticated',
+              headers: {
+                'Set-Cookie': {
+                  description: 'adminAccessToken and adminRefreshToken cookies',
+                  schema: { type: 'string' },
+                },
+              },
+            },
+            '401': { description: 'Invalid or expired TOTP / MFA token' },
+          },
+        },
+      },
+      '/auth/refresh': {
+        post: {
+          summary: 'Rotate Refresh Token',
+          description: 'Rotates the refresh token and issues a new access token. If reuse is detected, revokes the entire session family.',
+          tags: ['Admin Auth'],
+          parameters: [
+            { in: 'header', name: 'x-refresh-token', schema: { type: 'string' }, description: 'Optional header if not using cookie' },
+          ],
+          responses: {
+            '200': { description: 'Token rotated successfully' },
+            '401': { description: 'Invalid, expired, or reused token' },
+          },
+        },
+      },
+      '/auth/logout': {
+        post: {
+          summary: 'Logout Admin',
+          description: 'Revokes the active admin session and clears cookies.',
+          tags: ['Admin Auth'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          responses: {
+            '200': { description: 'Logged out successfully' },
+          },
+        },
+      },
+      '/auth/me': {
+        get: {
+          summary: 'Get Authenticated Admin Profile & Permission Matrix',
+          description: 'Returns profile details and the complete array of permissions assigned to this admin role for dynamic UI rendering.',
+          tags: ['Admin Auth'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          responses: {
+            '200': {
+              description: 'Admin profile with permissions',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: true },
+                      data: {
+                        allOf: [
+                          { $ref: '#/components/schemas/AdminUser' },
+                          {
+                            type: 'object',
+                            properties: {
+                              permissions: {
+                                type: 'array',
+                                items: { type: 'string' },
+                                example: ['users:read', 'users:manage', 'admins:manage', 'settings:write'],
+                              },
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            '401': { description: 'Unauthenticated' },
+          },
+        },
+      },
+      '/auth/sessions': {
+        get: {
+          summary: 'List Active Admin Sessions',
+          tags: ['Admin Auth'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          responses: {
+            '200': { description: 'List of active sessions' },
+          },
+        },
+      },
+      '/auth/sessions/{sessionId}': {
+        delete: {
+          summary: 'Revoke Specific Session',
+          tags: ['Admin Auth'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'sessionId', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'Session revoked' },
+            '404': { description: 'Session not found' },
+          },
+        },
+      },
+      '/auth/password/reset-request': {
+        post: {
+          summary: 'Request Admin Password Reset',
+          tags: ['Admin Auth'],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: { type: 'object', required: ['email'], properties: { email: { type: 'string', format: 'email' } } },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Reset link dispatched' },
+          },
+        },
+      },
+      '/auth/password/reset': {
+        post: {
+          summary: 'Complete Admin Password Reset',
+          tags: ['Admin Auth'],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['token', 'newPassword'],
+                  properties: {
+                    token: { type: 'string' },
+                    newPassword: { type: 'string', minLength: 12 },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Password reset completed' },
+            '400': { description: 'Invalid or expired token' },
+          },
+        },
+      },
+      '/dashboard': {
+        get: {
+          summary: 'Get Platform KPIs & Overview Metrics',
+          tags: ['Admin Dashboard'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          responses: {
+            '200': {
+              description: 'Dashboard aggregated counts',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: true },
+                      data: {
+                        type: 'object',
+                        properties: {
+                          ordersToday: { type: 'integer', example: 42 },
+                          activeRiders: { type: 'integer', example: 18 },
+                          pendingVerifications: { type: 'integer', example: 5 },
+                          newSignupsToday: { type: 'integer', example: 64 },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            '403': { description: 'Forbidden - requires analytics:read' },
+          },
+        },
+      },
+      '/admins': {
+        get: {
+          summary: 'List Admin & Staff Accounts',
+          tags: ['Admin Staff Management'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          responses: {
+            '200': {
+              description: 'List of admin users',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: true },
+                      data: { type: 'array', items: { $ref: '#/components/schemas/AdminUser' } },
+                    },
+                  },
+                },
+              },
+            },
+            '403': { description: 'Forbidden - requires admins:manage' },
+          },
+        },
+      },
+      '/admins/invitations': {
+        post: {
+          summary: 'Invite Staff Member',
+          description: 'Generates an invitation token (48h expiry) and dispatches an invitation link.',
+          tags: ['Admin Staff Management'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['email', 'name', 'role'],
+                  properties: {
+                    email: { type: 'string', format: 'email' },
+                    name: { type: 'string' },
+                    role: {
+                      type: 'string',
+                      enum: ['SUPER_ADMIN', 'OPS_ADMIN', 'FINANCE_ADMIN', 'SUPPORT_ADMIN', 'MODERATION_ADMIN'],
+                    },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '201': { description: 'Invitation sent' },
+            '409': { description: 'Admin email already exists' },
+          },
+        },
+      },
+      '/admins/{id}/role': {
+        patch: {
+          summary: 'Request Admin Role Change (Maker-Checker)',
+          description: 'Creates a pending approval request. Demoting the last active Super Admin is prohibited.',
+          tags: ['Admin Staff Management'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['role', 'reason'],
+                  properties: {
+                    role: { type: 'string', enum: ['SUPER_ADMIN', 'OPS_ADMIN', 'FINANCE_ADMIN', 'SUPPORT_ADMIN', 'MODERATION_ADMIN'] },
+                    reason: { type: 'string', minLength: 10 },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '202': { description: 'Role change request submitted for checker approval' },
+            '409': { description: 'Cannot demote the last Super Admin' },
+            '422': { description: 'Cannot change your own role' },
+          },
+        },
+      },
+      '/admins/{id}/deactivate': {
+        post: {
+          summary: 'Request Admin Deactivation (Maker-Checker)',
+          description: 'Creates a pending deactivation approval request. Deactivating the last active Super Admin is prohibited.',
+          tags: ['Admin Staff Management'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['reason'],
+                  properties: { reason: { type: 'string', minLength: 10 } },
+                },
+              },
+            },
+          },
+          responses: {
+            '202': { description: 'Deactivation request submitted for checker approval' },
+            '409': { description: 'Cannot deactivate the last Super Admin' },
+            '422': { description: 'Cannot deactivate yourself' },
+          },
+        },
+      },
+      '/admins/{id}/reset-mfa': {
+        post: {
+          summary: 'Force MFA Reset for Staff Member',
+          tags: ['Admin Staff Management'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'MFA reset; user must re-enroll on next login' },
+          },
+        },
+      },
+      '/approvals': {
+        get: {
+          summary: 'List Pending Approval Requests',
+          description: 'Super Admin sees all requests across platform; other staff see requests they initiated.',
+          tags: ['Admin Approvals'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          responses: {
+            '200': {
+              description: 'Pending approvals',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: true },
+                      data: { type: 'array', items: { $ref: '#/components/schemas/ApprovalRequest' } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      '/approvals/{id}/decide': {
+        post: {
+          summary: 'Decide on Approval Request (Maker-Checker Enforcement)',
+          description: 'Approves or rejects a request. The checker must differ from the maker who created the request.',
+          tags: ['Admin Approvals'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['decision', 'reason'],
+                  properties: {
+                    decision: { type: 'string', enum: ['APPROVED', 'REJECTED'] },
+                    reason: { type: 'string', minLength: 10 },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Approval decision recorded and executed' },
+            '409': { description: 'Request is already decided' },
+            '422': { description: 'Maker cannot approve their own request' },
+          },
+        },
+      },
+      '/users': {
+        get: {
+          summary: 'List / Search Platform Users',
+          description: 'Filters users by query, status, and role. Phone and email are automatically masked for Support and Moderation admins.',
+          tags: ['Admin Users'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'q', schema: { type: 'string' }, description: 'Search name, email, phone' },
+            { in: 'query', name: 'status', schema: { type: 'string', enum: ['active', 'inactive'] } },
+            { in: 'query', name: 'role', schema: { type: 'string', enum: ['CUSTOMER', 'BUSINESS', 'RIDER', 'ADMIN'] } },
+            { in: 'query', name: 'page', schema: { type: 'integer', default: 1 } },
+            { in: 'query', name: 'limit', schema: { type: 'integer', default: 20 } },
+          ],
+          responses: {
+            '200': { description: 'Paginated user list' },
+          },
+        },
+      },
+      '/users/{id}': {
+        get: {
+          summary: 'Get Detailed User Profile',
+          tags: ['Admin Users'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'User profile with order, wallet, and business/rider links' },
+            '404': { description: 'User not found' },
+          },
+        },
+        delete: {
+          summary: 'Soft-Delete User (Super Admin only)',
+          description: 'Anonymises personal data and deactivates account while retaining ledger and transaction integrity for legal retention.',
+          tags: ['Admin Users'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['reason'],
+                  properties: { reason: { type: 'string', minLength: 10 } },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'User soft-deleted' },
+            '403': { description: 'Forbidden - requires users:delete' },
+          },
+        },
+      },
+      '/users/{id}/suspend': {
+        post: {
+          summary: 'Suspend User Account',
+          tags: ['Admin Users'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['reason'],
+                  properties: {
+                    reason: { type: 'string', minLength: 10 },
+                    until: { type: 'string', format: 'date-time', description: 'Optional end date for temporary suspension' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'User suspended' },
+          },
+        },
+      },
+      '/users/{id}/reactivate': {
+        post: {
+          summary: 'Reactivate Suspended User Account',
+          tags: ['Admin Users'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['reason'],
+                  properties: { reason: { type: 'string', minLength: 10 } },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'User reactivated' },
+          },
+        },
+      },
+      '/users/{id}/force-logout': {
+        post: {
+          summary: 'Force Logout Platform User',
+          tags: ['Admin Users'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'User sessions invalidated' },
+          },
+        },
+      },
+      '/businesses': {
+        get: {
+          summary: 'List Businesses',
+          tags: ['Admin Businesses'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'q', schema: { type: 'string' } },
+            { in: 'query', name: 'verificationStatus', schema: { type: 'string', enum: ['PENDING', 'APPROVED', 'REJECTED'] } },
+            { in: 'query', name: 'page', schema: { type: 'integer', default: 1 } },
+            { in: 'query', name: 'limit', schema: { type: 'integer', default: 20 } },
+          ],
+          responses: {
+            '200': { description: 'List of businesses' },
+          },
+        },
+      },
+      '/businesses/{id}': {
+        get: {
+          summary: 'Get Business Details & Verification Profile',
+          tags: ['Admin Businesses'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'Business details' },
+          },
+        },
+      },
+      '/businesses/{id}/approve': {
+        post: {
+          summary: 'Approve Business Onboarding / KYC',
+          tags: ['Admin Businesses'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'Business approved' },
+          },
+        },
+      },
+      '/businesses/{id}/reject': {
+        post: {
+          summary: 'Reject Business Onboarding',
+          tags: ['Admin Businesses'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['reason'],
+                  properties: { reason: { type: 'string', minLength: 10 } },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Business rejected' },
+          },
+        },
+      },
+      '/businesses/{id}/suspend': {
+        post: {
+          summary: 'Suspend Business',
+          tags: ['Admin Businesses'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['reason'],
+                  properties: {
+                    reason: { type: 'string', minLength: 10 },
+                    permanent: { type: 'boolean', default: false },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Business suspended' },
+          },
+        },
+      },
+      '/businesses/{id}/reactivate': {
+        post: {
+          summary: 'Reactivate Business',
+          tags: ['Admin Businesses'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['reason'],
+                  properties: { reason: { type: 'string', minLength: 10 } },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Business reactivated' },
+          },
+        },
+      },
+      '/riders': {
+        get: {
+          summary: 'List Riders',
+          tags: ['Admin Riders'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'q', schema: { type: 'string' } },
+            { in: 'query', name: 'onlineStatus', schema: { type: 'string', enum: ['ONLINE', 'OFFLINE'] } },
+            { in: 'query', name: 'verificationStatus', schema: { type: 'string', enum: ['PENDING', 'APPROVED', 'REJECTED'] } },
+            { in: 'query', name: 'page', schema: { type: 'integer', default: 1 } },
+            { in: 'query', name: 'limit', schema: { type: 'integer', default: 20 } },
+          ],
+          responses: {
+            '200': { description: 'List of riders' },
+          },
+        },
+      },
+      '/riders/{id}': {
+        get: {
+          summary: 'Get Rider Profile & Performance History',
+          tags: ['Admin Riders'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'Rider details' },
+          },
+        },
+      },
+      '/riders/{id}/approve': {
+        post: {
+          summary: 'Approve Rider KYC',
+          tags: ['Admin Riders'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'Rider KYC approved' },
+          },
+        },
+      },
+      '/riders/{id}/reject': {
+        post: {
+          summary: 'Reject Rider KYC',
+          tags: ['Admin Riders'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['reason'],
+                  properties: { reason: { type: 'string', minLength: 10 } },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Rider KYC rejected' },
+          },
+        },
+      },
+      '/riders/{id}/suspend': {
+        post: {
+          summary: 'Suspend Rider Account',
+          tags: ['Admin Riders'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['reason'],
+                  properties: {
+                    reason: { type: 'string', minLength: 10 },
+                    permanent: { type: 'boolean', default: false },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Rider suspended' },
+          },
+        },
+      },
+      '/riders/{id}/reactivate': {
+        post: {
+          summary: 'Reactivate Rider Account',
+          tags: ['Admin Riders'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['reason'],
+                  properties: { reason: { type: 'string', minLength: 10 } },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Rider reactivated' },
+          },
+        },
+      },
+      '/orders': {
+        get: {
+          summary: 'List Orders',
+          tags: ['Admin Orders'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'status', schema: { type: 'string' } },
+            { in: 'query', name: 'businessId', schema: { type: 'string' } },
+            { in: 'query', name: 'riderId', schema: { type: 'string' } },
+            { in: 'query', name: 'cursor', schema: { type: 'string' } },
+            { in: 'query', name: 'limit', schema: { type: 'integer', default: 20 } },
+          ],
+          responses: {
+            '200': { description: 'Orders list with cursor pagination' },
+          },
+        },
+      },
+      '/orders/{id}': {
+        get: {
+          summary: 'Get Order Detail & Full Audit Timeline',
+          tags: ['Admin Orders'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'Order details' },
+          },
+        },
+      },
+      '/orders/{id}/cancel': {
+        post: {
+          summary: 'Cancel Order',
+          description: 'Cancels order before pickup. Operations admin cannot cancel orders past pickup time.',
+          tags: ['Admin Orders'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['reason'],
+                  properties: { reason: { type: 'string', minLength: 10 } },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Order cancelled' },
+            '422': { description: 'Order already picked up' },
+          },
+        },
+      },
+      '/orders/{id}/override-status': {
+        post: {
+          summary: 'Override Order Status (Super Admin Only)',
+          description: 'Force-updates order status with mandatory reason and immutable audit log entry.',
+          tags: ['Admin Orders'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['status', 'reason'],
+                  properties: {
+                    status: {
+                      type: 'string',
+                      enum: [
+                        'PENDING_PAYMENT',
+                        'PAID',
+                        'ACCEPTED',
+                        'PREPARING',
+                        'READY_FOR_PICKUP',
+                        'OUT_FOR_DELIVERY',
+                        'DELIVERED',
+                        'CANCELLED',
+                      ],
+                    },
+                    reason: { type: 'string', minLength: 10 },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Order status overridden' },
+            '403': { description: 'Forbidden - requires orders:override' },
+          },
+        },
+      },
+      '/settings': {
+        get: {
+          summary: 'List Platform Settings (Super Admin Only)',
+          tags: ['Admin Platform Settings'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          responses: {
+            '200': {
+              description: 'List of platform settings',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: true },
+                      data: { type: 'array', items: { $ref: '#/components/schemas/PlatformSetting' } },
+                    },
+                  },
+                },
+              },
+            },
+            '403': { description: 'Forbidden - requires settings:read' },
+          },
+        },
+      },
+      '/settings/{key}': {
+        get: {
+          summary: 'Get Platform Setting by Key',
+          tags: ['Admin Platform Settings'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'key', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'Setting value' },
+            '404': { description: 'Setting not found' },
+          },
+        },
+        put: {
+          summary: 'Update Platform Setting (Super Admin Only)',
+          description: 'Updates configuration key with schema validation and records audit log.',
+          tags: ['Admin Platform Settings'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'key', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['value', 'reason'],
+                  properties: {
+                    value: { type: 'string', minLength: 1 },
+                    reason: { type: 'string', minLength: 10 },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Setting updated' },
+            '400': { description: 'Unrecognised setting key' },
+            '403': { description: 'Forbidden - requires settings:write' },
+          },
+        },
+      },
+      '/audit-logs': {
+        get: {
+          summary: 'Query Audit Logs',
+          description: 'Search append-only audit trail. Super Admin sees all logs; other roles see only their own actions.',
+          tags: ['Admin Audit Logs'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'actorId', schema: { type: 'string', format: 'uuid' } },
+            { in: 'query', name: 'action', schema: { type: 'string' } },
+            { in: 'query', name: 'entityType', schema: { type: 'string' } },
+            { in: 'query', name: 'entityId', schema: { type: 'string', format: 'uuid' } },
+            { in: 'query', name: 'requestId', schema: { type: 'string' } },
+            { in: 'query', name: 'cursor', schema: { type: 'string' } },
+            { in: 'query', name: 'limit', schema: { type: 'integer', default: 20 } },
+          ],
+          responses: {
+            '200': {
+              description: 'Audit logs',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      success: { type: 'boolean', example: true },
+                      data: {
+                        type: 'object',
+                        properties: {
+                          logs: { type: 'array', items: { $ref: '#/components/schemas/AuditLog' } },
+                          meta: { type: 'object' },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            '403': { description: 'Forbidden - requires audit:read' },
+          },
+        },
+      },
+    },
+  },
+  apis: ['./src/modules/admin/*.routes.ts'],
+};
+
+export const adminSwaggerSpec = swaggerJSDoc(adminSwaggerOptions);
+
+/**
+ * Setup Admin-specific Swagger documentation.
+ * Serves UI at both `/api-docs/admin` and `/api/v1/admin/docs`.
+ */
+export const setupAdminSwagger = (app: Application) => {
+  const customCss = `
+    .swagger-ui .topbar { background-color: #0b2545; }
+    .swagger-ui .topbar .topbar-wrapper .link { content: url('https://placeholder.svg'); }
+    .swagger-ui .info .title { color: #0b2545; }
+  `;
+
+  const uiOptions = {
+    customCss,
+    customSiteTitle: 'AVATAR Admin Console API Docs',
+  };
+
+  app.use('/api-docs/admin', swaggerUi.serveFiles(adminSwaggerSpec, uiOptions), swaggerUi.setup(adminSwaggerSpec, uiOptions));
+  app.use('/api/v1/admin/docs', swaggerUi.serveFiles(adminSwaggerSpec, uiOptions), swaggerUi.setup(adminSwaggerSpec, uiOptions));
+  app.get('/api/v1/admin/docs.json', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(adminSwaggerSpec);
+  });
+};
