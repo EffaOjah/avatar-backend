@@ -48,6 +48,28 @@ enum ApprovalType {
   ORDER_STATUS_OVERRIDE
 }
 
+enum IncidentType {
+  LATE_DELIVERY
+  FAILED_DELIVERY
+  RIDER_NO_SHOW
+  ACCIDENT
+  ITEM_MISSING
+  SUSPECTED_FRAUD
+}
+
+enum IncidentStatus {
+  OPEN
+  ASSIGNED
+  RESOLVED
+}
+
+enum DisputeStatus {
+  OPEN
+  ESCALATED
+  RESOLVED
+  CLOSED
+}
+
 enum OrderStatus {
   PENDING_PAYMENT
   PAID
@@ -252,17 +274,21 @@ model OrderItem {
 }
 
 model Delivery {
-  id          String   @id @default(uuid())
-  orderId     String   @unique
-  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  riderId     String?
-  rider       Rider?   @relation(fields: [riderId], references: [id], onDelete: SetNull)
-  pinHash     String?
-  failedAttempts Int   @default(0)
-  pickupTime  DateTime?
-  dropoffTime DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                   String    @id @default(uuid())
+  orderId              String    @unique
+  order                Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  riderId              String?
+  rider                Rider?    @relation(fields: [riderId], references: [id], onDelete: SetNull)
+  pinHash              String?
+  pinRegenerationCount Int       @default(0)  // Max 3 regenerations per order (OP-03)
+  failedAttempts       Int       @default(0)
+  deliveryZone         String?   // Zone for OP-01 filtering
+  claimLockedAt        DateTime? // Distributed claim lock marker (OP-03)
+  claimLockedBy        String?   // Rider/admin that holds the lock
+  pickupTime           DateTime?
+  dropoffTime          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 }
 
 // =======================
@@ -369,6 +395,51 @@ model PlatformSetting {
   key       String   @unique
   value     String   // Stored as string, cast as needed
   updatedAt DateTime @updatedAt
+}
+
+// =======================
+// OPERATIONS (OP-07)
+// =======================
+
+model Incident {
+  id          String         @id @default(uuid())
+  type        IncidentType
+  status      IncidentStatus @default(OPEN)
+  orderId     String?        // Linked order (optional)
+  riderId     String?        // Linked rider (optional)
+  businessId  String?        // Linked business (optional)
+  description String
+  notes       String?        // Internal notes (append-only via service)
+  ownerId     String?        // AdminUser.id assigned as owner
+  resolvedAt  DateTime?
+  reportedBy  String         // AdminUser.id who logged it
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([status])
+  @@index([orderId])
+  @@index([riderId])
+  @@index([reportedBy])
+}
+
+model Dispute {
+  id              String        @id @default(uuid())
+  status          DisputeStatus @default(OPEN)
+  orderId         String?
+  customerId      String?       // User.id of complainant
+  description     String
+  resolution      String?
+  ownerId         String?       // AdminUser.id
+  refundRequestId String?       // Set when money movement is needed
+  escalatedTo     String?       // "FINANCE" | "MODERATION" | "SUPER_ADMIN"
+  reportedBy      String        // AdminUser.id
+  resolvedAt      DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([status])
+  @@index([orderId])
+  @@index([customerId])
 }
 
 // =======================

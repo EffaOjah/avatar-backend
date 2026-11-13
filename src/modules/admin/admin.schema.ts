@@ -101,13 +101,6 @@ export const rejectBusinessSchema = z.object({
   }),
 });
 
-export const setBusinessStatusSchema = z.object({
-  body: z.object({
-    status: z.enum(['OPEN', 'CLOSED', 'PAUSED']),
-    reason: z.string().optional(),
-  }),
-});
-
 export const suspendBusinessSchema = z.object({
   body: z.object({
     reason: z.string().min(10, 'Reason must be at least 10 characters'),
@@ -143,14 +136,6 @@ export const cancelOrderSchema = z.object({
   body: z.object({
     reason: z.string().min(10, 'Reason must be at least 10 characters'),
     reasonCode: z.string().optional(),
-  }),
-});
-
-export const reassignRiderSchema = z.object({
-  body: z.object({
-    riderId: z.string().uuid().optional(),
-    pool: z.boolean().default(false),
-    reason: z.string().min(10, 'Reason must be at least 10 characters'),
   }),
 });
 
@@ -215,5 +200,170 @@ export const usersQuerySchema = z.object({
     to: z.string().datetime().optional(),
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(20),
+  }),
+});
+
+// ── Operations Admin ──────────────────────────────────────────────────────────
+
+export const ordersQuerySchema = z.object({
+  query: z.object({
+    status: z
+      .enum([
+        'PENDING_PAYMENT', 'PAID', 'ACCEPTED', 'PREPARING',
+        'READY_FOR_PICKUP', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED',
+      ])
+      .optional(),
+    businessId: z.string().uuid().optional(),
+    riderId: z.string().uuid().optional(),
+    zone: z.string().optional(),
+    minAgeMinutes: z.coerce.number().int().min(0).optional(),
+    cursor: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  }),
+});
+
+export const reassignRiderSchema = z.object({
+  body: z
+    .object({
+      riderId: z.string().uuid().optional(),
+      pool: z.boolean().default(false),
+      reason: z.string().min(10, 'Reason must be at least 10 characters'),
+    })
+    .refine((d) => d.riderId || d.pool, {
+      message: 'Either riderId or pool=true must be provided',
+    }),
+});
+
+export const regeneratePinSchema = z.object({
+  body: z.object({}).optional(),
+});
+
+export const riderDocumentActionSchema = z.object({
+  body: z.object({
+    reason: z.string().min(10, 'Reason must be at least 10 characters').optional(),
+  }),
+});
+
+export const suspendRiderOpsSchema = z.object({
+  body: z.object({
+    reason: z.string().min(10, 'Reason must be at least 10 characters'),
+    until: z.string().datetime({ message: 'until must be a valid ISO 8601 datetime' }),
+  }),
+});
+
+export const permanentSuspendRiderSchema = z.object({
+  body: z.object({
+    reason: z.string().min(10, 'Reason must be at least 10 characters'),
+  }),
+});
+
+export const ridersQuerySchema = z.object({
+  query: z.object({
+    online: z
+      .string()
+      .optional()
+      .transform((v) => (v === 'true' ? true : v === 'false' ? false : undefined)),
+    zone: z.string().optional(),
+    verificationStatus: z.enum(['PENDING', 'APPROVED', 'REJECTED']).optional(),
+    cursor: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  }),
+});
+
+export const setBusinessStatusSchema = z.object({
+  body: z.object({
+    status: z.enum(['OPEN', 'CLOSED', 'PAUSED']),
+    reason: z.string().optional(),
+  }),
+});
+
+export const setProductAvailabilitySchema = z.object({
+  body: z.object({
+    isAvailable: z.boolean(),
+    reason: z.string().optional(),
+  }),
+});
+
+export const sendNotificationSchema = z.object({
+  body: z.object({
+    templateKey: z.string().min(1, 'Template key is required'),
+    orderId: z.string().uuid().optional(),
+    message: z.string().min(1, 'Message is required'),
+  }),
+});
+
+export const logIncidentSchema = z.object({
+  body: z.object({
+    type: z.enum([
+      'LATE_DELIVERY',
+      'FAILED_DELIVERY',
+      'RIDER_NO_SHOW',
+      'ACCIDENT',
+      'ITEM_MISSING',
+      'SUSPECTED_FRAUD',
+    ]),
+    description: z.string().min(10, 'Description must be at least 10 characters'),
+    orderId: z.string().uuid().optional(),
+    riderId: z.string().uuid().optional(),
+    businessId: z.string().uuid().optional(),
+  }),
+});
+
+export const updateIncidentSchema = z.object({
+  body: z.object({
+    ownerId: z.string().uuid().optional(),
+    notes: z.string().optional(),
+    status: z.enum(['OPEN', 'ASSIGNED', 'RESOLVED']).optional(),
+  }),
+});
+
+export const incidentsQuerySchema = z.object({
+  query: z.object({
+    status: z.enum(['OPEN', 'ASSIGNED', 'RESOLVED']).optional(),
+    type: z
+      .enum([
+        'LATE_DELIVERY', 'FAILED_DELIVERY', 'RIDER_NO_SHOW',
+        'ACCIDENT', 'ITEM_MISSING', 'SUSPECTED_FRAUD',
+      ])
+      .optional(),
+    orderId: z.string().uuid().optional(),
+    riderId: z.string().uuid().optional(),
+    cursor: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  }),
+});
+
+export const openDisputeSchema = z.object({
+  body: z.object({
+    description: z.string().min(10, 'Description must be at least 10 characters'),
+    orderId: z.string().uuid().optional(),
+    customerId: z.string().uuid().optional(),
+  }),
+});
+
+export const updateDisputeSchema = z.object({
+  body: z.object({
+    ownerId: z.string().uuid().optional(),
+    status: z.enum(['OPEN', 'ESCALATED', 'RESOLVED', 'CLOSED']).optional(),
+    resolution: z.string().optional(),
+    escalateTo: z.string().optional(),
+    refundAmount: z.number().positive().optional(),
+    refundReason: z.string().optional(),
+  }),
+});
+
+export const disputesQuerySchema = z.object({
+  query: z.object({
+    status: z.enum(['OPEN', 'ESCALATED', 'RESOLVED', 'CLOSED']).optional(),
+    orderId: z.string().uuid().optional(),
+    cursor: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  }),
+});
+
+export const analyticsQuerySchema = z.object({
+  query: z.object({
+    from: z.string().datetime().optional(),
+    to: z.string().datetime().optional(),
   }),
 });

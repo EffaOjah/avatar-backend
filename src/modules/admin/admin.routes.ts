@@ -12,6 +12,14 @@ import {
   AdminSettingsController,
   AdminAuditController,
   AdminDashboardController,
+  // Operations Admin
+  AdminOpsOrdersController,
+  AdminOpsRidersController,
+  AdminOpsBusinessController,
+  AdminOpsLookupController,
+  AdminIncidentsController,
+  AdminDisputesController,
+  AdminOpsAnalyticsController,
 } from './admin.controller';
 import {
   adminLoginSchema,
@@ -34,6 +42,23 @@ import {
   decideApprovalSchema,
   auditLogQuerySchema,
   usersQuerySchema,
+  // Operations Admin schemas
+  ordersQuerySchema,
+  reassignRiderSchema,
+  riderDocumentActionSchema,
+  suspendRiderOpsSchema,
+  permanentSuspendRiderSchema,
+  ridersQuerySchema,
+  setBusinessStatusSchema,
+  setProductAvailabilitySchema,
+  sendNotificationSchema,
+  logIncidentSchema,
+  updateIncidentSchema,
+  incidentsQuerySchema,
+  openDisputeSchema,
+  updateDisputeSchema,
+  disputesQuerySchema,
+  analyticsQuerySchema,
 } from './admin.schema';
 
 const router = Router();
@@ -184,19 +209,34 @@ router.post('/riders/:id/reactivate',
   AdminRidersController.reactivateRider,
 );
 
-// ── Orders ─────────────────────────────────────────────────────────────────────
+// ── Orders (OP-01, OP-03) ─────────────────────────────────────────────────────
+// /stream must be declared before /:id to prevent "stream" matching as an id param
+router.get('/orders/stream',
+  requirePermission('orders:read'),
+  AdminOpsOrdersController.streamOrders,
+);
 router.get('/orders',
   requirePermission('orders:read'),
-  AdminOrdersController.listOrders,
+  validate(ordersQuerySchema),
+  AdminOpsOrdersController.listOrders,
 );
 router.get('/orders/:id',
   requirePermission('orders:read'),
-  AdminOrdersController.getOrderById,
+  AdminOpsOrdersController.getOrderDetail,
 );
 router.post('/orders/:id/cancel',
   requirePermission('orders:manage'),
   validate(cancelOrderSchema),
   AdminOrdersController.cancelOrder,
+);
+router.post('/orders/:id/reassign',
+  requirePermission('orders:manage'),
+  validate(reassignRiderSchema),
+  AdminOpsOrdersController.reassignRider,
+);
+router.post('/orders/:id/pin/regenerate',
+  requirePermission('orders:manage'),
+  AdminOpsOrdersController.regeneratePin,
 );
 router.post('/orders/:id/override-status',
   requirePermission('orders:override'),
@@ -224,6 +264,104 @@ router.get('/audit-logs',
   requirePermission('audit:read'),
   validate(auditLogQuerySchema),
   AdminAuditController.listAuditLogs,
+);
+
+// ── Operations: Rider Roster (OP-04) ─────────────────────────────────────────
+router.get('/ops/riders',
+  requirePermission('riders:read'),
+  validate(ridersQuerySchema),
+  AdminOpsRidersController.listRiders,
+);
+router.post('/ops/riders/:id/documents/:documentId/approve',
+  requirePermission('riders:approve'),
+  AdminOpsRidersController.approveDocument,
+);
+router.post('/ops/riders/:id/documents/:documentId/reject',
+  requirePermission('riders:approve'),
+  validate(riderDocumentActionSchema),
+  AdminOpsRidersController.rejectDocument,
+);
+router.post('/ops/riders/:id/suspend',
+  requirePermission('riders:manage'),
+  validate(suspendRiderOpsSchema),
+  AdminOpsRidersController.suspendRider,
+);
+router.post('/ops/riders/:id/request-permanent-suspension',
+  requirePermission('riders:manage'),
+  validate(permanentSuspendRiderSchema),
+  AdminOpsRidersController.requestPermanentSuspension,
+);
+
+// ── Operations: Business Support (OP-05) ────────────────────────────────────
+router.patch('/ops/businesses/:id/status',
+  requirePermission('businesses:manage'),
+  validate(setBusinessStatusSchema),
+  AdminOpsBusinessController.setStatus,
+);
+router.patch('/ops/businesses/:id/products/:productId/availability',
+  requirePermission('businesses:manage'),
+  validate(setProductAvailabilitySchema),
+  AdminOpsBusinessController.setProductAvailability,
+);
+
+// ── Operations: Lookup + Notify (OP-06) ──────────────────────────────────────
+router.get('/lookup',
+  requirePermission('users:read'),
+  AdminOpsLookupController.unifiedLookup,
+);
+router.post('/users/:id/notify',
+  requirePermission('notifications:send:targeted'),
+  validate(sendNotificationSchema),
+  AdminOpsLookupController.sendNotification,
+);
+
+// ── Operations: Incidents (OP-07) ─────────────────────────────────────────────
+router.get('/incidents',
+  requirePermission('incidents:manage'),
+  validate(incidentsQuerySchema),
+  AdminIncidentsController.listIncidents,
+);
+router.post('/incidents',
+  requirePermission('incidents:manage'),
+  validate(logIncidentSchema),
+  AdminIncidentsController.logIncident,
+);
+router.get('/incidents/:id',
+  requirePermission('incidents:manage'),
+  AdminIncidentsController.getIncident,
+);
+router.patch('/incidents/:id',
+  requirePermission('incidents:manage'),
+  validate(updateIncidentSchema),
+  AdminIncidentsController.updateIncident,
+);
+
+// ── Operations: Disputes (OP-07) ──────────────────────────────────────────────
+router.get('/disputes',
+  requirePermission('disputes:read'),
+  validate(disputesQuerySchema),
+  AdminDisputesController.listDisputes,
+);
+router.post('/disputes',
+  requirePermission('disputes:manage'),
+  validate(openDisputeSchema),
+  AdminDisputesController.openDispute,
+);
+router.get('/disputes/:id',
+  requirePermission('disputes:read'),
+  AdminDisputesController.getDispute,
+);
+router.patch('/disputes/:id',
+  requirePermission('disputes:manage'),
+  validate(updateDisputeSchema),
+  AdminDisputesController.updateDispute,
+);
+
+// ── Operations: Analytics (OP-08) ─────────────────────────────────────────────
+router.get('/analytics/operations',
+  requirePermission('analytics:read:operations'),
+  validate(analyticsQuerySchema),
+  AdminOpsAnalyticsController.getAnalytics,
 );
 
 export default router;

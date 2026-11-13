@@ -10,6 +10,15 @@ import { AdminBusinessesService } from './admin-businesses.service';
 import { AdminRidersService } from './admin-riders.service';
 import { AdminOrdersService } from './admin-orders.service';
 import { AdminSettingsService, AdminAuditService, AdminDashboardService } from './admin-settings.service';
+import {
+  AdminOpsOrdersService,
+  AdminOpsRidersService,
+  AdminOpsBusinessService,
+  AdminOpsLookupService,
+  AdminIncidentsService,
+  AdminDisputesService,
+  AdminOpsAnalyticsService,
+} from './admin-ops.service';
 
 /** Thin wrapper: send success response */
 const ok = (res: Response, data: unknown, status = 200) =>
@@ -569,6 +578,408 @@ export class AdminDashboardController {
   static async getDashboard(req: AdminRequest, res: Response) {
     try {
       ok(res, await AdminDashboardService.getDashboard());
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OPS — ORDERS (OP-01, OP-03)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminOpsOrdersController {
+  static async listOrders(req: AdminRequest, res: Response) {
+    try {
+      const { status, businessId, riderId, zone, minAgeMinutes, cursor, limit } = req.query as any;
+      const data = await AdminOpsOrdersService.listOrders({
+        status,
+        businessId,
+        riderId,
+        zone,
+        minAgeMinutes: minAgeMinutes ? parseInt(minAgeMinutes, 10) : undefined,
+        cursor,
+        limit: limit ? parseInt(limit, 10) : 20,
+      });
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async getOrderDetail(req: AdminRequest, res: Response) {
+    try {
+      ok(res, await AdminOpsOrdersService.getOrderDetail(req.params.id as string));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  /**
+   * OP-01 — SSE live orders stream.
+   * Sends current order snapshot then polls every 15 s.
+   */
+  static async streamOrders(req: AdminRequest, res: Response) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const sendSnapshot = async () => {
+      try {
+        const { status, zone } = req.query as any;
+        const data = await AdminOpsOrdersService.listOrders({ status, zone, limit: 100 });
+        res.write(`data: ${JSON.stringify({ type: 'snapshot', payload: data })}\n\n`);
+      } catch {
+        res.write(`data: ${JSON.stringify({ type: 'error', message: 'Failed to fetch orders' })}\n\n`);
+      }
+    };
+
+    // Send initial snapshot
+    await sendSnapshot();
+
+    // Poll every 15 seconds
+    const interval = setInterval(sendSnapshot, 15_000);
+
+    // Keep-alive comment every 15 s
+    const keepAlive = setInterval(() => {
+      res.write(': keep-alive\n\n');
+    }, 15_000);
+
+    req.on('close', () => {
+      clearInterval(interval);
+      clearInterval(keepAlive);
+    });
+  }
+
+  static async reassignRider(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminOpsOrdersService.reassignRider(
+        req.params.id as string,
+        req.body,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async regeneratePin(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminOpsOrdersService.regeneratePin(
+        req.params.id as string,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OPS — RIDERS (OP-04)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminOpsRidersController {
+  static async listRiders(req: AdminRequest, res: Response) {
+    try {
+      const { online, zone, verificationStatus, cursor, limit } = req.query as any;
+      const data = await AdminOpsRidersService.listRiders({
+        online: online === 'true' ? true : online === 'false' ? false : undefined,
+        zone,
+        verificationStatus,
+        cursor,
+        limit: limit ? parseInt(limit, 10) : 20,
+      });
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async approveDocument(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminOpsRidersService.approveDocument(
+        req.params.id as string,
+        req.params.documentId as string,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async rejectDocument(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminOpsRidersService.rejectDocument(
+        req.params.id as string,
+        req.params.documentId as string,
+        req.body.reason as string,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async suspendRider(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminOpsRidersService.suspendRider(
+        req.params.id as string,
+        req.body,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async requestPermanentSuspension(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminOpsRidersService.requestPermanentSuspension(
+        req.params.id as string,
+        req.body.reason as string,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data, 202);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OPS — BUSINESSES (OP-05)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminOpsBusinessController {
+  static async setStatus(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const { status, reason } = req.body;
+      const data = await AdminOpsBusinessService.setBusinessStatus(
+        req.params.id as string,
+        status,
+        reason,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async setProductAvailability(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const { isAvailable, reason } = req.body;
+      const data = await AdminOpsBusinessService.setProductAvailability(
+        req.params.id as string,
+        req.params.productId as string,
+        isAvailable,
+        reason,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OPS — LOOKUP + NOTIFY (OP-06)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminOpsLookupController {
+  static async unifiedLookup(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const { q } = req.query as { q?: string };
+      if (!q || q.trim().length < 2) {
+        return res.status(400).json({ success: false, error: { code: 'INVALID_QUERY', message: 'q must be at least 2 characters' } });
+      }
+      const data = await AdminOpsLookupService.unifiedLookup(q.trim(), admin.role);
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async sendNotification(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminOpsLookupService.sendTargetedNotification(
+        req.params.id as string,
+        req.body,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data, 201);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OPS — INCIDENTS (OP-07)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminIncidentsController {
+  static async listIncidents(req: AdminRequest, res: Response) {
+    try {
+      const { status, type, orderId, riderId, cursor, limit } = req.query as any;
+      ok(res, await AdminIncidentsService.listIncidents({ status, type, orderId, riderId, cursor, limit: limit ? parseInt(limit, 10) : 20 }));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async getIncident(req: AdminRequest, res: Response) {
+    try {
+      ok(res, await AdminIncidentsService.getIncidentById(req.params.id as string));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async logIncident(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminIncidentsService.logIncident(
+        req.body,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data, 201);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async updateIncident(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminIncidentsService.updateIncident(
+        req.params.id as string,
+        req.body,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OPS — DISPUTES (OP-07)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminDisputesController {
+  static async listDisputes(req: AdminRequest, res: Response) {
+    try {
+      const { status, orderId, cursor, limit } = req.query as any;
+      ok(res, await AdminDisputesService.listDisputes({ status, orderId, cursor, limit: limit ? parseInt(limit, 10) : 20 }));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async getDispute(req: AdminRequest, res: Response) {
+    try {
+      ok(res, await AdminDisputesService.getDisputeById(req.params.id as string));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async openDispute(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminDisputesService.openDispute(
+        req.body,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data, 201);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async updateDispute(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminDisputesService.updateDispute(
+        req.params.id as string,
+        req.body,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OPS — ANALYTICS (OP-08)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminOpsAnalyticsController {
+  static async getAnalytics(req: AdminRequest, res: Response) {
+    try {
+      const { from, to } = req.query as any;
+      ok(res, await AdminOpsAnalyticsService.getOperationalAnalytics({ from, to }));
     } catch (e: any) {
       fail(res, e);
     }

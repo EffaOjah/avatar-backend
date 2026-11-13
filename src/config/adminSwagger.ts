@@ -145,6 +145,7 @@ export const adminSwaggerOptions = {
       { name: 'Admin Platform Settings', description: 'Versioned system settings and operational parameters (Super Admin only)' },
       { name: 'Admin Audit Logs', description: 'Append-only audit trail search and security compliance inspector' },
       { name: 'Admin Dashboard', description: 'High-level real-time operational and platform KPIs' },
+      { name: 'Admin Operations', description: 'Real-time order tracking, rider reassignment, delivery PIN regeneration, incidents, disputes, and operational analytics' },
     ],
     paths: {
       '/auth/login': {
@@ -986,6 +987,442 @@ export const adminSwaggerOptions = {
           responses: {
             '200': { description: 'Order status overridden' },
             '403': { description: 'Forbidden - requires orders:override' },
+          },
+        },
+      },
+      '/orders/stream': {
+        get: {
+          summary: 'Live Orders Stream (SSE)',
+          description: 'Server-Sent Events connection streaming real-time order board updates with 15-second heartbeat/polling fallback.',
+          tags: ['Admin Operations', 'Admin Orders'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'status', schema: { type: 'string' } },
+            { in: 'query', name: 'zone', schema: { type: 'string' } },
+          ],
+          responses: {
+            '200': { description: 'text/event-stream order stream' },
+          },
+        },
+      },
+      '/orders/{id}/reassign': {
+        post: {
+          summary: 'Atomic Rider Reassignment (OP-03)',
+          description: 'Reassigns order by releasing the current claim and assigning a named rider or returning to the pool. Atomic locking prevents race conditions.',
+          tags: ['Admin Operations', 'Admin Orders'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['reason'],
+                  properties: {
+                    riderId: { type: 'string', format: 'uuid' },
+                    pool: { type: 'boolean', default: false },
+                    reason: { type: 'string', minLength: 10 },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Rider reassigned' },
+            '409': { description: 'Conflict - concurrent reassignment or lock active' },
+            '422': { description: 'Order status does not permit reassignment' },
+          },
+        },
+      },
+      '/orders/{id}/pin/regenerate': {
+        post: {
+          summary: 'Regenerate Delivery PIN (OP-03)',
+          description: 'Generates a new 6-digit delivery PIN. Max 3 per order. Only active during transit/pickup. PIN is returned to admin to relay but never stored in plaintext.',
+          tags: ['Admin Operations', 'Admin Orders'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'New delivery PIN issued' },
+            '422': { description: 'Max regenerations exceeded or invalid order state' },
+          },
+        },
+      },
+      '/ops/riders': {
+        get: {
+          summary: 'Operations Rider Roster (OP-04)',
+          description: 'Query riders with active claims count, online state, and operational filters.',
+          tags: ['Admin Operations', 'Admin Riders'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'online', schema: { type: 'boolean' } },
+            { in: 'query', name: 'zone', schema: { type: 'string' } },
+            { in: 'query', name: 'verificationStatus', schema: { type: 'string', enum: ['PENDING', 'APPROVED', 'REJECTED'] } },
+            { in: 'query', name: 'cursor', schema: { type: 'string' } },
+            { in: 'query', name: 'limit', schema: { type: 'integer', default: 20 } },
+          ],
+          responses: {
+            '200': { description: 'Roster of riders' },
+          },
+        },
+      },
+      '/ops/riders/{id}/documents/{documentId}/approve': {
+        post: {
+          summary: 'Approve Rider Verification Document (OP-04)',
+          tags: ['Admin Operations', 'Admin Riders'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'path', name: 'id', required: true, schema: { type: 'string' } },
+            { in: 'path', name: 'documentId', required: true, schema: { type: 'string' } },
+          ],
+          responses: {
+            '200': { description: 'Document approved' },
+          },
+        },
+      },
+      '/ops/riders/{id}/documents/{documentId}/reject': {
+        post: {
+          summary: 'Reject Rider Verification Document (OP-04)',
+          tags: ['Admin Operations', 'Admin Riders'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'path', name: 'id', required: true, schema: { type: 'string' } },
+            { in: 'path', name: 'documentId', required: true, schema: { type: 'string' } },
+          ],
+          requestBody: {
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: { reason: { type: 'string', minLength: 10 } },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Document rejected' },
+          },
+        },
+      },
+      '/ops/riders/{id}/suspend': {
+        post: {
+          summary: 'Temporarily Suspend Rider (OP-04)',
+          description: 'Time-boxed suspension within configured maximum limit. Blocks if rider holds active deliveries.',
+          tags: ['Admin Operations', 'Admin Riders'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['reason', 'until'],
+                  properties: {
+                    reason: { type: 'string', minLength: 10 },
+                    until: { type: 'string', format: 'date-time' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Rider suspended temporarily' },
+            '422': { description: 'Active orders must be reassigned first or suspension exceeds limit' },
+          },
+        },
+      },
+      '/ops/riders/{id}/request-permanent-suspension': {
+        post: {
+          summary: 'Request Permanent Rider Suspension (Maker-Checker OP-04)',
+          tags: ['Admin Operations', 'Admin Riders'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['reason'],
+                  properties: { reason: { type: 'string', minLength: 10 } },
+                },
+              },
+            },
+          },
+          responses: {
+            '202': { description: 'Permanent suspension approval request created' },
+          },
+        },
+      },
+      '/ops/businesses/{id}/status': {
+        patch: {
+          summary: 'Set Business Operational Status (OP-05)',
+          description: 'Open, close, or pause business. Tagged "changed by platform" in business portal.',
+          tags: ['Admin Operations', 'Admin Businesses'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['status'],
+                  properties: {
+                    status: { type: 'string', enum: ['OPEN', 'CLOSED', 'PAUSED'] },
+                    reason: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Status updated' },
+          },
+        },
+      },
+      '/ops/businesses/{id}/products/{productId}/availability': {
+        patch: {
+          summary: 'Pause/Resume Product Menu Item (OP-05)',
+          tags: ['Admin Operations', 'Admin Businesses'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'path', name: 'id', required: true, schema: { type: 'string' } },
+            { in: 'path', name: 'productId', required: true, schema: { type: 'string' } },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['isAvailable'],
+                  properties: {
+                    isAvailable: { type: 'boolean' },
+                    reason: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Product availability changed' },
+          },
+        },
+      },
+      '/lookup': {
+        get: {
+          summary: 'Unified Customer, Business, and Rider Search (OP-06, SP-03)',
+          description: 'Cross-entity global search. PII masked according to caller role.',
+          tags: ['Admin Operations'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'q', required: true, schema: { type: 'string', minLength: 2 } },
+          ],
+          responses: {
+            '200': { description: 'Unified search results' },
+          },
+        },
+      },
+      '/users/{id}/notify': {
+        post: {
+          summary: 'Send Targeted In-App Notification (OP-06)',
+          tags: ['Admin Operations'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['templateKey', 'message'],
+                  properties: {
+                    templateKey: { type: 'string' },
+                    orderId: { type: 'string', format: 'uuid' },
+                    message: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '201': { description: 'Notification sent' },
+          },
+        },
+      },
+      '/incidents': {
+        get: {
+          summary: 'List Operational Incidents (OP-07)',
+          tags: ['Admin Operations'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'status', schema: { type: 'string', enum: ['OPEN', 'ASSIGNED', 'RESOLVED'] } },
+            { in: 'query', name: 'type', schema: { type: 'string' } },
+            { in: 'query', name: 'orderId', schema: { type: 'string' } },
+            { in: 'query', name: 'riderId', schema: { type: 'string' } },
+            { in: 'query', name: 'cursor', schema: { type: 'string' } },
+            { in: 'query', name: 'limit', schema: { type: 'integer', default: 20 } },
+          ],
+          responses: {
+            '200': { description: 'Incidents list' },
+          },
+        },
+        post: {
+          summary: 'Log Operational Incident (OP-07)',
+          tags: ['Admin Operations'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['type', 'description'],
+                  properties: {
+                    type: {
+                      type: 'string',
+                      enum: ['LATE_DELIVERY', 'FAILED_DELIVERY', 'RIDER_NO_SHOW', 'ACCIDENT', 'ITEM_MISSING', 'SUSPECTED_FRAUD'],
+                    },
+                    description: { type: 'string', minLength: 10 },
+                    orderId: { type: 'string', format: 'uuid' },
+                    riderId: { type: 'string', format: 'uuid' },
+                    businessId: { type: 'string', format: 'uuid' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '201': { description: 'Incident logged' },
+          },
+        },
+      },
+      '/incidents/{id}': {
+        get: {
+          summary: 'Get Incident Details (OP-07)',
+          tags: ['Admin Operations'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'Incident details' },
+          },
+        },
+        patch: {
+          summary: 'Assign / Resolve Incident (OP-07)',
+          tags: ['Admin Operations'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    ownerId: { type: 'string', format: 'uuid' },
+                    notes: { type: 'string' },
+                    status: { type: 'string', enum: ['OPEN', 'ASSIGNED', 'RESOLVED'] },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Incident updated' },
+          },
+        },
+      },
+      '/disputes': {
+        get: {
+          summary: 'List Disputes (OP-07)',
+          tags: ['Admin Operations'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'status', schema: { type: 'string', enum: ['OPEN', 'ESCALATED', 'RESOLVED', 'CLOSED'] } },
+            { in: 'query', name: 'orderId', schema: { type: 'string' } },
+            { in: 'query', name: 'cursor', schema: { type: 'string' } },
+            { in: 'query', name: 'limit', schema: { type: 'integer', default: 20 } },
+          ],
+          responses: {
+            '200': { description: 'Disputes list' },
+          },
+        },
+        post: {
+          summary: 'Open a Dispute (OP-07)',
+          tags: ['Admin Operations'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['description'],
+                  properties: {
+                    description: { type: 'string', minLength: 10 },
+                    orderId: { type: 'string', format: 'uuid' },
+                    customerId: { type: 'string', format: 'uuid' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '201': { description: 'Dispute opened' },
+          },
+        },
+      },
+      '/disputes/{id}': {
+        get: {
+          summary: 'Get Dispute Details (OP-07)',
+          tags: ['Admin Operations'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'Dispute details' },
+          },
+        },
+        patch: {
+          summary: 'Resolve / Escalate Dispute (OP-07)',
+          description: 'Updates dispute status or assigns owner. If refundAmount is specified, automatically raises a refund approval request in Finance.',
+          tags: ['Admin Operations'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    ownerId: { type: 'string', format: 'uuid' },
+                    status: { type: 'string', enum: ['OPEN', 'ESCALATED', 'RESOLVED', 'CLOSED'] },
+                    resolution: { type: 'string' },
+                    escalateTo: { type: 'string' },
+                    refundAmount: { type: 'number', minimum: 1 },
+                    refundReason: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Dispute updated' },
+          },
+        },
+      },
+      '/analytics/operations': {
+        get: {
+          summary: 'Operational Analytics (OP-08)',
+          description: 'Delivery turnaround, avg claim/delivery times, rider utilisation %, cancellation by reason, and zone distribution.',
+          tags: ['Admin Operations'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'from', schema: { type: 'string', format: 'date-time' } },
+            { in: 'query', name: 'to', schema: { type: 'string', format: 'date-time' } },
+          ],
+          responses: {
+            '200': { description: 'Operational KPI analytics' },
           },
         },
       },
