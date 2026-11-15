@@ -132,6 +132,64 @@ export const adminSwaggerOptions = {
             createdAt: { type: 'string', format: 'date-time' },
           },
         },
+        LedgerEntry: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            walletId: { type: 'string', format: 'uuid', nullable: true },
+            direction: { type: 'string', enum: ['CREDIT', 'DEBIT'] },
+            type: { type: 'string', example: 'ORDER_DELIVERY_CREDIT' },
+            amount: { type: 'number', example: 5000 },
+            currency: { type: 'string', example: 'NGN' },
+            reference: { type: 'string', example: 'PAY-100234' },
+            description: { type: 'string', nullable: true },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        Wallet: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            userId: { type: 'string', format: 'uuid' },
+            balance: { type: 'number', example: 25000 },
+            heldBalance: { type: 'number', example: 0 },
+            availableBalance: { type: 'number', example: 25000 },
+            currency: { type: 'string', example: 'NGN' },
+            status: { type: 'string', enum: ['ACTIVE', 'FROZEN'] },
+            frozenReason: { type: 'string', nullable: true },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        Refund: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            orderId: { type: 'string', format: 'uuid' },
+            amount: { type: 'number', example: 3500 },
+            currency: { type: 'string', example: 'NGN' },
+            reason: { type: 'string' },
+            status: { type: 'string', enum: ['PENDING', 'APPROVED', 'REJECTED', 'PROCESSED', 'FAILED'] },
+            destination: { type: 'string', enum: ['WALLET', 'ORIGINAL_PAYMENT'] },
+            requestedBy: { type: 'string', format: 'uuid' },
+            decidedBy: { type: 'string', format: 'uuid', nullable: true },
+            decisionReason: { type: 'string', nullable: true },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        PayoutBatch: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            periodStart: { type: 'string', format: 'date-time' },
+            periodEnd: { type: 'string', format: 'date-time' },
+            totalAmount: { type: 'number', example: 850000 },
+            currency: { type: 'string', example: 'NGN' },
+            status: { type: 'string', enum: ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'PROCESSING', 'COMPLETED', 'FAILED'] },
+            approvedBy: { type: 'string', format: 'uuid', nullable: true },
+            createdBy: { type: 'string', format: 'uuid' },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
       },
     },
     tags: [
@@ -146,6 +204,7 @@ export const adminSwaggerOptions = {
       { name: 'Admin Audit Logs', description: 'Append-only audit trail search and security compliance inspector' },
       { name: 'Admin Dashboard', description: 'High-level real-time operational and platform KPIs' },
       { name: 'Admin Operations', description: 'Real-time order tracking, rider reassignment, delivery PIN regeneration, incidents, disputes, and operational analytics' },
+      { name: 'Admin Finance', description: 'Financial transactions, ledger entries, wallet management, maker-checker adjustments, refund queue, payout batches, reconciliation, and revenue analytics' },
     ],
     paths: {
       '/auth/login': {
@@ -1423,6 +1482,457 @@ export const adminSwaggerOptions = {
           ],
           responses: {
             '200': { description: 'Operational KPI analytics' },
+          },
+        },
+      },
+      '/transactions': {
+        get: {
+          summary: 'Transaction Explorer (FN-01)',
+          description: 'Search payment transactions and attached ledger entries with filters.',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'reference', schema: { type: 'string' } },
+            { in: 'query', name: 'orderId', schema: { type: 'string', format: 'uuid' } },
+            { in: 'query', name: 'userId', schema: { type: 'string', format: 'uuid' } },
+            { in: 'query', name: 'status', schema: { type: 'string' } },
+            { in: 'query', name: 'minAmount', schema: { type: 'number' } },
+            { in: 'query', name: 'maxAmount', schema: { type: 'number' } },
+            { in: 'query', name: 'cursor', schema: { type: 'string' } },
+            { in: 'query', name: 'limit', schema: { type: 'integer', default: 20 } },
+          ],
+          responses: {
+            '200': { description: 'Transactions list with ledger entries' },
+          },
+        },
+      },
+      '/transactions/{id}': {
+        get: {
+          summary: 'Get Transaction Details & Linked Ledger (FN-01)',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'Transaction details' },
+            '404': { description: 'Transaction not found' },
+          },
+        },
+      },
+      '/wallets/{id}': {
+        get: {
+          summary: 'Get Wallet Balance & Status (FN-02)',
+          description: 'Derived balance from immutable ledger. Support role receives safe summary view.',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'Wallet balance details', content: { 'application/json': { schema: { $ref: '#/components/schemas/Wallet' } } } },
+            '404': { description: 'Wallet not found' },
+          },
+        },
+      },
+      '/wallets/{id}/ledger': {
+        get: {
+          summary: 'View Full Immutable Wallet Ledger (FN-02)',
+          description: 'Chronological double-entry ledger. Forbidden for Support Admin.',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'path', name: 'id', required: true, schema: { type: 'string' } },
+            { in: 'query', name: 'cursor', schema: { type: 'string' } },
+            { in: 'query', name: 'limit', schema: { type: 'integer', default: 20 } },
+          ],
+          responses: {
+            '200': { description: 'Wallet ledger entries' },
+            '403': { description: 'Forbidden for Support role' },
+          },
+        },
+      },
+      '/wallets/{id}/freeze': {
+        post: {
+          summary: 'Freeze Wallet (FN-02)',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['reason'],
+                  properties: { reason: { type: 'string', minLength: 10 } },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Wallet frozen' },
+            '409': { description: 'Wallet is already frozen' },
+          },
+        },
+      },
+      '/wallets/{id}/unfreeze': {
+        post: {
+          summary: 'Unfreeze Wallet (FN-02)',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['reason'],
+                  properties: { reason: { type: 'string', minLength: 10 } },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Wallet restored to active' },
+            '409': { description: 'Wallet is not frozen' },
+          },
+        },
+      },
+      '/wallets/adjustments': {
+        post: {
+          summary: 'Request Wallet Credit/Debit Adjustment (Maker-Checker FN-08)',
+          description: 'Requires Super Admin approval before ledger entry posts.',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['walletId', 'direction', 'amount', 'reason', 'idempotencyKey'],
+                  properties: {
+                    walletId: { type: 'string', format: 'uuid' },
+                    direction: { type: 'string', enum: ['CREDIT', 'DEBIT'] },
+                    amount: { type: 'number', minimum: 1 },
+                    reason: { type: 'string', minLength: 10 },
+                    reference: { type: 'string' },
+                    idempotencyKey: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '202': { description: 'Adjustment request submitted for Super Admin review' },
+          },
+        },
+      },
+      '/refunds': {
+        get: {
+          summary: 'Refund Queue (FN-05)',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'status', schema: { type: 'string', enum: ['PENDING', 'APPROVED', 'REJECTED', 'PROCESSED', 'FAILED'] } },
+            { in: 'query', name: 'orderId', schema: { type: 'string', format: 'uuid' } },
+            { in: 'query', name: 'cursor', schema: { type: 'string' } },
+            { in: 'query', name: 'limit', schema: { type: 'integer', default: 20 } },
+          ],
+          responses: {
+            '200': { description: 'Refund queue list' },
+          },
+        },
+        post: {
+          summary: 'Raise Refund Request (FN-05)',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['orderId', 'amount', 'reason'],
+                  properties: {
+                    orderId: { type: 'string', format: 'uuid' },
+                    amount: { type: 'number', minimum: 1 },
+                    reason: { type: 'string', minLength: 10 },
+                    destination: { type: 'string', enum: ['WALLET', 'ORIGINAL_PAYMENT'], default: 'WALLET' },
+                    evidence: { type: 'string' },
+                    idempotencyKey: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '201': { description: 'Refund request created' },
+            '422': { description: 'Refund exceeds maximum eligible order balance' },
+          },
+        },
+      },
+      '/refunds/{id}': {
+        get: {
+          summary: 'Get Refund Detail (FN-05)',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'Refund record' },
+          },
+        },
+      },
+      '/refunds/{id}/approve': {
+        post: {
+          summary: 'Approve Refund (Maker-Checker FN-05)',
+          description: 'Approver must differ from requester. If above threshold, Super Admin approval required.',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    amount: { type: 'number', minimum: 1 },
+                    decisionReason: { type: 'string', minLength: 10 },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Refund approved and wallet credited' },
+            '422': { description: 'Maker-checker violation: cannot approve own request' },
+            '403': { description: 'Exceeds threshold, requires Super Admin' },
+          },
+        },
+      },
+      '/refunds/{id}/reject': {
+        post: {
+          summary: 'Reject Refund (FN-05)',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['reason'],
+                  properties: { reason: { type: 'string', minLength: 10 } },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Refund rejected' },
+          },
+        },
+      },
+      '/payouts': {
+        get: {
+          summary: 'List Payout Lines (FN-04)',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'batchId', schema: { type: 'string', format: 'uuid' } },
+            { in: 'query', name: 'status', schema: { type: 'string', enum: ['PENDING', 'SUBMITTED', 'SUCCESS', 'FAILED', 'EXCLUDED'] } },
+            { in: 'query', name: 'recipientType', schema: { type: 'string', enum: ['BUSINESS', 'RIDER'] } },
+            { in: 'query', name: 'cursor', schema: { type: 'string' } },
+            { in: 'query', name: 'limit', schema: { type: 'integer', default: 20 } },
+          ],
+          responses: {
+            '200': { description: 'Payout lines' },
+          },
+        },
+      },
+      '/payouts/batches': {
+        post: {
+          summary: 'Generate Payout Batch (FN-04)',
+          description: 'Builds batch from eligible delivered undisputed orders for merchants & riders.',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['periodStart', 'periodEnd'],
+                  properties: {
+                    periodStart: { type: 'string', format: 'date-time' },
+                    periodEnd: { type: 'string', format: 'date-time' },
+                    notes: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '201': { description: 'Payout batch created' },
+          },
+        },
+      },
+      '/payouts/batches/{id}': {
+        get: {
+          summary: 'Get Payout Batch Detail (FN-04)',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'Batch details with line items' },
+          },
+        },
+      },
+      '/payouts/batches/{id}/approve': {
+        post: {
+          summary: 'Approve Payout Batch Above Threshold (Super Admin FN-04)',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'Batch approved for submission' },
+          },
+        },
+      },
+      '/payouts/batches/{id}/submit': {
+        post: {
+          summary: 'Submit Payout Batch to Gateway (FN-04)',
+          description: 'Idempotent per-line submission to Paystack transfer service.',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'Batch submitted' },
+          },
+        },
+      },
+      '/payouts/{id}/retry': {
+        post: {
+          summary: 'Retry Failed Payout Line (FN-04)',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'Line re-queued for submission' },
+          },
+        },
+      },
+      '/reconciliation/runs': {
+        get: {
+          summary: 'Reconciliation Run History (FN-06)',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'cursor', schema: { type: 'string' } },
+            { in: 'query', name: 'limit', schema: { type: 'integer', default: 20 } },
+          ],
+          responses: {
+            '200': { description: 'Reconciliation runs' },
+          },
+        },
+        post: {
+          summary: 'Trigger Daily Reconciliation Run (FN-06)',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['periodStart', 'periodEnd'],
+                  properties: {
+                    periodStart: { type: 'string', format: 'date-time' },
+                    periodEnd: { type: 'string', format: 'date-time' },
+                    notes: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '201': { description: 'Reconciliation run completed with flagged discrepancies' },
+          },
+        },
+      },
+      '/reconciliation/runs/{id}': {
+        get: {
+          summary: 'Get Reconciliation Run Detail (FN-06)',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'Reconciliation run details with flags' },
+          },
+        },
+      },
+      '/reconciliation/flags/{id}/resolve': {
+        post: {
+          summary: 'Resolve Reconciliation Discrepancy (FN-06)',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['note'],
+                  properties: { note: { type: 'string', minLength: 10 } },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Discrepancy flag resolved' },
+          },
+        },
+      },
+      '/analytics/finance': {
+        get: {
+          summary: 'Finance Revenue Dashboard (FN-03)',
+          description: 'Gross order value, commissions, delivery fees, refunds, and wallet liabilities.',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'from', schema: { type: 'string', format: 'date-time' } },
+            { in: 'query', name: 'to', schema: { type: 'string', format: 'date-time' } },
+          ],
+          responses: {
+            '200': { description: 'Financial overview' },
+          },
+        },
+      },
+      '/exports/finance': {
+        post: {
+          summary: 'Export Financial Reports (FN-07)',
+          description: 'Settlement, commissions, payouts, refunds, and tax summaries in CSV/XLSX/PDF.',
+          tags: ['Admin Finance'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['type'],
+                  properties: {
+                    type: {
+                      type: 'string',
+                      enum: ['DAILY_SETTLEMENT', 'COMMISSIONS', 'PAYOUTS', 'REFUNDS', 'WALLET_LIABILITIES'],
+                    },
+                    format: { type: 'string', enum: ['CSV', 'XLSX', 'PDF'], default: 'CSV' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '201': { description: 'Export job initiated' },
           },
         },
       },

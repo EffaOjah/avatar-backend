@@ -20,6 +20,13 @@ import {
   AdminIncidentsController,
   AdminDisputesController,
   AdminOpsAnalyticsController,
+  // Finance Admin
+  AdminTransactionsController,
+  AdminWalletsController,
+  AdminRefundsController,
+  AdminPayoutsController,
+  AdminReconciliationController,
+  AdminFinanceAnalyticsController,
 } from './admin.controller';
 import {
   adminLoginSchema,
@@ -59,6 +66,21 @@ import {
   updateDisputeSchema,
   disputesQuerySchema,
   analyticsQuerySchema,
+  // Finance Admin schemas
+  transactionsQuerySchema,
+  freezeWalletSchema,
+  unfreezeWalletSchema,
+  walletAdjustmentSchema,
+  refundsQuerySchema,
+  createRefundSchema,
+  approveRefundSchema,
+  rejectRefundSchema,
+  payoutsQuerySchema,
+  createPayoutBatchSchema,
+  reconciliationRunsQuerySchema,
+  triggerReconciliationSchema,
+  resolveReconciliationFlagSchema,
+  exportFinanceReportSchema,
 } from './admin.schema';
 
 const router = Router();
@@ -362,6 +384,129 @@ router.get('/analytics/operations',
   requirePermission('analytics:read:operations'),
   validate(analyticsQuerySchema),
   AdminOpsAnalyticsController.getAnalytics,
+);
+
+// ── Finance: Transactions (FN-01) ─────────────────────────────────────────────
+router.get('/transactions',
+  requirePermission('transactions:read'),
+  validate(transactionsQuerySchema),
+  AdminTransactionsController.listTransactions,
+);
+router.get('/transactions/:id',
+  requirePermission('transactions:read'),
+  AdminTransactionsController.getTransaction,
+);
+
+// ── Finance: Wallets (FN-02, FN-08) ───────────────────────────────────────────
+router.get('/wallets/:id',
+  requirePermission('wallets:read'),
+  AdminWalletsController.getWallet,
+);
+router.get('/wallets/:id/ledger',
+  requirePermission('wallets:read'),
+  AdminWalletsController.getWalletLedger,
+);
+router.post('/wallets/:id/freeze',
+  requirePermission('wallets:freeze'),
+  validate(freezeWalletSchema),
+  AdminWalletsController.freezeWallet,
+);
+router.post('/wallets/:id/unfreeze',
+  requirePermission('wallets:freeze'),
+  validate(unfreezeWalletSchema),
+  AdminWalletsController.unfreezeWallet,
+);
+router.post('/wallets/adjustments',
+  requirePermission('wallets:adjust:request'),
+  validate(walletAdjustmentSchema),
+  AdminWalletsController.requestAdjustment,
+);
+
+// ── Finance: Refunds (FN-05) ──────────────────────────────────────────────────
+router.get('/refunds',
+  requirePermission('refunds:read'),
+  validate(refundsQuerySchema),
+  AdminRefundsController.listRefunds,
+);
+router.get('/refunds/:id',
+  requirePermission('refunds:read'),
+  AdminRefundsController.getRefund,
+);
+router.post('/refunds',
+  requirePermission('refunds:request'),
+  validate(createRefundSchema),
+  AdminRefundsController.requestRefund,
+);
+router.post('/refunds/:id/approve',
+  requirePermission('refunds:decide'),
+  validate(approveRefundSchema),
+  AdminRefundsController.approveRefund,
+);
+router.post('/refunds/:id/reject',
+  requirePermission('refunds:decide'),
+  validate(rejectRefundSchema),
+  AdminRefundsController.rejectRefund,
+);
+
+// ── Finance: Payouts (FN-04) ──────────────────────────────────────────────────
+router.get('/payouts',
+  requirePermission('payouts:read'),
+  validate(payoutsQuerySchema),
+  AdminPayoutsController.listPayouts,
+);
+router.post('/payouts/batches',
+  requirePermission('payouts:manage'),
+  validate(createPayoutBatchSchema),
+  AdminPayoutsController.createBatch,
+);
+router.get('/payouts/batches/:id',
+  requirePermission('payouts:read'),
+  AdminPayoutsController.getBatch,
+);
+router.post('/payouts/batches/:id/approve',
+  requirePermission('payouts:approve'),
+  AdminPayoutsController.approveBatch,
+);
+router.post('/payouts/batches/:id/submit',
+  requirePermission('payouts:manage'),
+  AdminPayoutsController.submitBatch,
+);
+router.post('/payouts/:id/retry',
+  requirePermission('payouts:manage'),
+  AdminPayoutsController.retryLine,
+);
+
+// ── Finance: Reconciliation (FN-06) ───────────────────────────────────────────
+router.get('/reconciliation/runs',
+  requirePermission('reconciliation:read'),
+  validate(reconciliationRunsQuerySchema),
+  AdminReconciliationController.listRuns,
+);
+router.post('/reconciliation/runs',
+  requirePermission('reconciliation:read'),
+  validate(triggerReconciliationSchema),
+  AdminReconciliationController.triggerRun,
+);
+router.get('/reconciliation/runs/:id',
+  requirePermission('reconciliation:read'),
+  AdminReconciliationController.getRun,
+);
+router.post('/reconciliation/flags/:id/resolve',
+  requirePermission('reconciliation:read'),
+  validate(resolveReconciliationFlagSchema),
+  AdminReconciliationController.resolveFlag,
+);
+
+// ── Finance: Analytics & Reports (FN-03, FN-07) ───────────────────────────────
+router.get('/analytics/finance',
+  requirePermission('analytics:read:finance'),
+  validate(analyticsQuerySchema),
+  AdminFinanceAnalyticsController.getOverview,
+);
+router.post('/exports/finance',
+  requirePermission('finance_reports:export'),
+  validate(exportFinanceReportSchema),
+  AdminFinanceAnalyticsController.exportReport,
 );
 
 export default router;

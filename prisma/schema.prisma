@@ -70,6 +70,66 @@ enum DisputeStatus {
   CLOSED
 }
 
+enum WalletStatus {
+  ACTIVE
+  FROZEN
+}
+
+enum LedgerDirection {
+  CREDIT
+  DEBIT
+}
+
+enum RefundStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PROCESSED
+  FAILED
+}
+
+enum RefundDestination {
+  WALLET
+  ORIGINAL_PAYMENT
+}
+
+enum PayoutBatchStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum PayoutLineStatus {
+  PENDING
+  SUBMITTED
+  SUCCESS
+  FAILED
+  EXCLUDED
+}
+
+enum ReconciliationStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum ReconciliationFlagType {
+  MISSING_IN_LEDGER
+  MISSING_IN_PAYSTACK
+  AMOUNT_MISMATCH
+  STATUS_MISMATCH
+}
+
+enum ExportJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
 enum OrderStatus {
   PENDING_PAYMENT
   PAID
@@ -260,6 +320,7 @@ model Order {
   items          OrderItem[]
   payment        Payment?
   delivery       Delivery?
+  refunds        Refund[]
 }
 
 model OrderItem {
@@ -309,25 +370,44 @@ model Payment {
 }
 
 model Wallet {
-  id          String   @id @default(uuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  balance     Float    @default(0.0)
-  currency    String   @default("NGN")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String        @id @default(uuid())
+  userId       String
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance      Float         @default(0.0)
+  heldBalance  Float         @default(0.0)
+  currency     String        @default("NGN")
+  status       WalletStatus  @default(ACTIVE)
+  frozenReason String?
+  frozenAt     DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
-  withdrawals Withdrawal[]
+  withdrawals   Withdrawal[]
+  ledgerEntries LedgerEntry[]
+
+  @@index([userId])
+  @@index([status])
 }
 
 model LedgerEntry {
-  id          String   @id @default(uuid())
-  type        String   // ORDER_DELIVERY_CREDIT, PLATFORM_COMMISSION, WITHDRAWAL, REFUND
-  amount      Float
-  currency    String   @default("NGN")
-  referenceId String?  // ID of related Order, Withdrawal, etc.
-  description String?
-  createdAt   DateTime @default(now())
+  id             String           @id @default(uuid())
+  walletId       String?
+  wallet         Wallet?          @relation(fields: [walletId], references: [id], onDelete: SetNull)
+  direction      LedgerDirection  @default(CREDIT)
+  type           String           // ORDER_DELIVERY_CREDIT, PLATFORM_COMMISSION, WITHDRAWAL, REFUND, WALLET_ADJUSTMENT, PAYOUT
+  amount         Float
+  currency       String           @default("NGN")
+  reference      String?          // Unique payment/transaction or internal ref
+  referenceId    String?          // ID of related Order, Withdrawal, etc.
+  idempotencyKey String?          @unique
+  relatedEntryId String?          // For reversing or paired double entries
+  description    String?
+  createdAt      DateTime         @default(now())
+
+  @@index([walletId])
+  @@index([type])
+  @@index([reference])
+  @@index([createdAt])
 }
 
 model Withdrawal {
@@ -339,6 +419,124 @@ model Withdrawal {
   processedAt DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model Refund {
+  id             String            @id @default(uuid())
+  orderId        String
+  order          Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  amount         Float
+  currency       String            @default("NGN")
+  reason         String
+  status         RefundStatus      @default(PENDING)
+  destination    RefundDestination @default(WALLET)
+  requestedBy    String            // AdminUser.id or "CUSTOMER" / "SYSTEM"
+  decidedBy      String?           // AdminUser.id
+  evidence       String?           // Note or image URL
+  decisionReason String?
+  idempotencyKey String?           @unique
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([orderId])
+  @@index([status])
+  @@index([requestedBy])
+}
+
+model PayoutBatch {
+  id          String            @id @default(uuid())
+  periodStart DateTime
+  periodEnd   DateTime
+  totalAmount Float             @default(0.0)
+  currency    String            @default("NGN")
+  status      PayoutBatchStatus @default(DRAFT)
+  approvedBy  String?           // AdminUser.id (Super Admin or checker)
+  approvedAt  DateTime?
+  createdBy   String            // AdminUser.id
+  notes       String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  lines       PayoutLine[]
+
+  @@index([status])
+  @@index([periodStart, periodEnd])
+}
+
+model PayoutLine {
+  id            String           @id @default(uuid())
+  batchId       String
+  batch         PayoutBatch      @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  recipientType String           // "BUSINESS" | "RIDER"
+  recipientId   String           // Business.id or Rider.id
+  amount        Float
+  currency      String           @default("NGN")
+  status        PayoutLineStatus @default(PENDING)
+  paystackRef   String?          @unique
+  failureReason String?
+  retryCount    Int              @default(0)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@unique([batchId, recipientId])
+  @@index([batchId])
+  @@index([status])
+  @@index([recipientId])
+}
+
+model ReconciliationRun {
+  id                 String               @id @default(uuid())
+  periodStart        DateTime
+  periodEnd          DateTime
+  status             ReconciliationStatus @default(RUNNING)
+  totalProcessed     Int                  @default(0)
+  totalDiscrepancies Int                  @default(0)
+  notes              String?
+  initiatedBy        String               // AdminUser.id
+  completedAt        DateTime?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  flags              ReconciliationFlag[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ReconciliationFlag {
+  id             String                 @id @default(uuid())
+  runId          String
+  run            ReconciliationRun      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  type           ReconciliationFlagType
+  reference      String                 // Paystack or order reference
+  paystackAmount Float?
+  ledgerAmount   Float?
+  description    String
+  resolved       Boolean                @default(false)
+  resolutionNote String?
+  resolvedBy     String?                // AdminUser.id
+  resolvedAt     DateTime?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  @@index([runId])
+  @@index([resolved])
+}
+
+model ExportJob {
+  id          String          @id @default(uuid())
+  type        String          // FINANCE_DAILY_SETTLEMENT, COMMISSIONS, PAYOUTS, REFUNDS, WALLET_LIABILITIES, TAX_SUMMARY
+  format      String          // CSV, XLSX, PDF
+  filters     String?         // JSON stringified filters
+  status      ExportJobStatus @default(PENDING)
+  fileUrl     String?
+  requestedBy String          // AdminUser.id
+  expiresAt   DateTime
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([status])
+  @@index([requestedBy])
 }
 
 // =======================

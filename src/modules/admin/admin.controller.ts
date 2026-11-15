@@ -19,6 +19,14 @@ import {
   AdminDisputesService,
   AdminOpsAnalyticsService,
 } from './admin-ops.service';
+import {
+  AdminTransactionsService,
+  AdminWalletsService,
+  AdminRefundsService,
+  AdminPayoutsService,
+  AdminReconciliationService,
+  AdminFinanceAnalyticsService,
+} from './admin-finance.service';
 
 /** Thin wrapper: send success response */
 const ok = (res: Response, data: unknown, status = 200) =>
@@ -980,6 +988,389 @@ export class AdminOpsAnalyticsController {
     try {
       const { from, to } = req.query as any;
       ok(res, await AdminOpsAnalyticsService.getOperationalAnalytics({ from, to }));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FINANCE — TRANSACTIONS (FN-01)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminTransactionsController {
+  static async listTransactions(req: AdminRequest, res: Response) {
+    try {
+      const { reference, orderId, userId, status, provider, minAmount, maxAmount, cursor, limit } = req.query as any;
+      const data = await AdminTransactionsService.listTransactions({
+        reference,
+        orderId,
+        userId,
+        status,
+        provider,
+        minAmount: minAmount ? parseFloat(minAmount) : undefined,
+        maxAmount: maxAmount ? parseFloat(maxAmount) : undefined,
+        cursor,
+        limit: limit ? parseInt(limit, 10) : 20,
+      });
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async getTransaction(req: AdminRequest, res: Response) {
+    try {
+      ok(res, await AdminTransactionsService.getTransactionById(req.params.id as string));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FINANCE — WALLETS (FN-02, FN-08)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminWalletsController {
+  static async getWallet(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      ok(res, await AdminWalletsService.getWalletById(req.params.id as string, admin.role));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async getWalletLedger(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const { cursor, limit } = req.query as any;
+      const data = await AdminWalletsService.getWalletLedger(
+        req.params.id as string,
+        { cursor, limit: limit ? parseInt(limit, 10) : 20 },
+        admin.role,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async freezeWallet(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminWalletsService.freezeWallet(
+        req.params.id as string,
+        req.body.reason,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async unfreezeWallet(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminWalletsService.unfreezeWallet(
+        req.params.id as string,
+        req.body.reason,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async requestAdjustment(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminWalletsService.requestAdjustment(
+        req.body,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data, 202);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FINANCE — REFUNDS (FN-05)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminRefundsController {
+  static async listRefunds(req: AdminRequest, res: Response) {
+    try {
+      const { status, orderId, requestedBy, cursor, limit } = req.query as any;
+      const data = await AdminRefundsService.listRefunds({
+        status,
+        orderId,
+        requestedBy,
+        cursor,
+        limit: limit ? parseInt(limit, 10) : 20,
+      });
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async getRefund(req: AdminRequest, res: Response) {
+    try {
+      ok(res, await AdminRefundsService.getRefundById(req.params.id as string));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async requestRefund(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminRefundsService.requestRefund(
+        req.body,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data, 201);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async approveRefund(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminRefundsService.approveRefund(
+        req.params.id as string,
+        req.body,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async rejectRefund(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminRefundsService.rejectRefund(
+        req.params.id as string,
+        req.body.reason,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FINANCE — PAYOUTS (FN-04)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminPayoutsController {
+  static async listPayouts(req: AdminRequest, res: Response) {
+    try {
+      const { batchId, status, recipientType, cursor, limit } = req.query as any;
+      const data = await AdminPayoutsService.listPayoutLines({
+        batchId,
+        status,
+        recipientType,
+        cursor,
+        limit: limit ? parseInt(limit, 10) : 20,
+      });
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async createBatch(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const { periodStart, periodEnd, notes } = req.body;
+      const data = await AdminPayoutsService.createBatch(
+        new Date(periodStart),
+        new Date(periodEnd),
+        notes,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data, 201);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async getBatch(req: AdminRequest, res: Response) {
+    try {
+      ok(res, await AdminPayoutsService.getBatchById(req.params.id as string));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async approveBatch(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminPayoutsService.approveBatch(
+        req.params.id as string,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async submitBatch(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminPayoutsService.submitBatch(
+        req.params.id as string,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async retryLine(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminPayoutsService.retryLine(
+        req.params.id as string,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FINANCE — RECONCILIATION (FN-06)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminReconciliationController {
+  static async listRuns(req: AdminRequest, res: Response) {
+    try {
+      const { cursor, limit } = req.query as any;
+      ok(res, await AdminReconciliationService.listRuns({ cursor, limit: limit ? parseInt(limit, 10) : 20 }));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async getRun(req: AdminRequest, res: Response) {
+    try {
+      ok(res, await AdminReconciliationService.getRunById(req.params.id as string));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async triggerRun(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const { periodStart, periodEnd, notes } = req.body;
+      const data = await AdminReconciliationService.runReconciliation(
+        new Date(periodStart),
+        new Date(periodEnd),
+        notes,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data, 201);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async resolveFlag(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminReconciliationService.resolveFlag(
+        req.params.id as string,
+        req.body.note,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FINANCE — ANALYTICS & EXPORTS (FN-03, FN-07)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminFinanceAnalyticsController {
+  static async getOverview(req: AdminRequest, res: Response) {
+    try {
+      const { from, to } = req.query as any;
+      ok(res, await AdminFinanceAnalyticsService.getOverview({ from, to }));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async exportReport(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const { type, format } = req.body;
+      const data = await AdminFinanceAnalyticsService.exportReport(
+        type,
+        format ?? 'CSV',
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data, 201);
     } catch (e: any) {
       fail(res, e);
     }

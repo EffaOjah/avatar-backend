@@ -367,3 +367,122 @@ export const analyticsQuerySchema = z.object({
     to: z.string().datetime().optional(),
   }),
 });
+
+// ── Finance Admin ────────────────────────────────────────────────────────────
+
+export const transactionsQuerySchema = z.object({
+  query: z.object({
+    reference: z.string().optional(),
+    orderId: z.string().uuid().optional(),
+    userId: z.string().uuid().optional(),
+    status: z.string().optional(),
+    provider: z.string().optional(),
+    minAmount: z.coerce.number().positive().optional(),
+    maxAmount: z.coerce.number().positive().optional(),
+    cursor: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  }),
+});
+
+export const freezeWalletSchema = z.object({
+  body: z.object({
+    reason: z.string().min(10, 'Reason must be at least 10 characters'),
+  }),
+});
+
+export const unfreezeWalletSchema = z.object({
+  body: z.object({
+    reason: z.string().min(10, 'Reason must be at least 10 characters'),
+  }),
+});
+
+export const walletAdjustmentSchema = z.object({
+  body: z.object({
+    walletId: z.string().uuid(),
+    direction: z.enum(['CREDIT', 'DEBIT']),
+    amount: z.number().positive('Amount must be positive'),
+    reason: z.string().min(10, 'Reason must be at least 10 characters'),
+    reference: z.string().optional(),
+    idempotencyKey: z.string().min(1, 'Idempotency key is required'),
+  }),
+});
+
+export const refundsQuerySchema = z.object({
+  query: z.object({
+    status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'PROCESSED', 'FAILED']).optional(),
+    orderId: z.string().uuid().optional(),
+    requestedBy: z.string().uuid().optional(),
+    cursor: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  }),
+});
+
+export const createRefundSchema = z.object({
+  body: z.object({
+    orderId: z.string().uuid(),
+    amount: z.number().positive('Amount must be positive'),
+    reason: z.string().min(10, 'Reason must be at least 10 characters'),
+    destination: z.enum(['WALLET', 'ORIGINAL_PAYMENT']).default('WALLET'),
+    evidence: z.string().optional(),
+    idempotencyKey: z.string().optional(),
+  }),
+});
+
+export const approveRefundSchema = z.object({
+  body: z.object({
+    amount: z.number().positive().optional(),
+    decisionReason: z.string().min(10, 'Decision reason must be at least 10 characters').optional(),
+  }),
+});
+
+export const rejectRefundSchema = z.object({
+  body: z.object({
+    reason: z.string().min(10, 'Reason must be at least 10 characters'),
+  }),
+});
+
+export const payoutsQuerySchema = z.object({
+  query: z.object({
+    batchId: z.string().uuid().optional(),
+    status: z.enum(['PENDING', 'SUBMITTED', 'SUCCESS', 'FAILED', 'EXCLUDED']).optional(),
+    recipientType: z.enum(['BUSINESS', 'RIDER']).optional(),
+    cursor: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  }),
+});
+
+export const createPayoutBatchSchema = z.object({
+  body: z.object({
+    periodStart: z.string().datetime(),
+    periodEnd: z.string().datetime(),
+    notes: z.string().optional(),
+  }),
+});
+
+export const reconciliationRunsQuerySchema = z.object({
+  query: z.object({
+    cursor: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  }),
+});
+
+export const triggerReconciliationSchema = z.object({
+  body: z.object({
+    periodStart: z.string().datetime(),
+    periodEnd: z.string().datetime(),
+    notes: z.string().optional(),
+  }),
+});
+
+export const resolveReconciliationFlagSchema = z.object({
+  body: z.object({
+    note: z.string().min(10, 'Resolution note must be at least 10 characters'),
+  }),
+});
+
+export const exportFinanceReportSchema = z.object({
+  body: z.object({
+    type: z.enum(['DAILY_SETTLEMENT', 'COMMISSIONS', 'PAYOUTS', 'REFUNDS', 'WALLET_LIABILITIES']),
+    format: z.enum(['CSV', 'XLSX', 'PDF']).default('CSV'),
+  }),
+});
