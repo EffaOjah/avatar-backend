@@ -130,6 +130,90 @@ enum ExportJobStatus {
   FAILED
 }
 
+enum TicketSource {
+  CUSTOMER
+  BUSINESS
+  RIDER
+}
+
+enum TicketCategory {
+  SERVICE
+  DELIVERY
+  PAYMENT
+  CONDUCT
+  SAFETY
+  ACCOUNT
+  OTHER
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TicketStatus {
+  OPEN
+  PENDING
+  ON_HOLD
+  RESOLVED
+  CLOSED
+}
+
+enum ContentStatus {
+  ACTIVE
+  HIDDEN
+  REMOVED
+}
+
+enum AbuseTargetType {
+  FEED_POST
+  STORY
+  REVIEW
+  USER
+  BUSINESS
+}
+
+enum ModerationReasonCode {
+  SPAM
+  HARASSMENT
+  HATE
+  NUDITY
+  VIOLENCE
+  SCAM
+  COUNTERFEIT
+  OTHER
+}
+
+enum AbuseReportStatus {
+  PENDING
+  RESOLVED
+  DISMISSED
+  ESCALATED
+}
+
+enum ModerationActionType {
+  HIDE
+  REMOVE
+  RESTORE
+  STRIKE
+  RESTRICTION
+}
+
+enum AppealStatus {
+  NONE
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum RestrictionType {
+  POSTING
+  COMMENTING
+  ALL
+}
+
 enum OrderStatus {
   PENDING_PAYMENT
   PAID
@@ -700,6 +784,209 @@ model ApprovalRequest {
   @@index([status])
   @@index([requestedBy])
   @@index([type])
+}
+
+// =======================
+// SUPPORT CONSOLE (SP-01 to SP-08)
+// =======================
+
+model SupportTicket {
+  id           String         @id @default(uuid())
+  ticketNumber String         @unique
+  source       TicketSource   @default(CUSTOMER)
+  category     TicketCategory @default(SERVICE)
+  priority     TicketPriority @default(MEDIUM)
+  status       TicketStatus   @default(OPEN)
+  subject      String
+  customerId   String?
+  orderId      String?
+  assigneeId   String?
+  slaDueAt     DateTime?
+  resolvedAt   DateTime?
+  tags         String[]
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  messages     TicketMessage[]
+
+  @@index([status])
+  @@index([priority])
+  @@index([assigneeId])
+  @@index([customerId])
+  @@index([orderId])
+  @@index([slaDueAt])
+}
+
+model TicketMessage {
+  id          String        @id @default(uuid())
+  ticketId    String
+  ticket      SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  senderId    String
+  senderRole  String
+  body        String
+  isInternal  Boolean       @default(false)
+  attachments String[]
+  createdAt   DateTime      @default(now())
+
+  @@index([ticketId])
+  @@index([isInternal])
+}
+
+model CannedResponse {
+  id        String   @id @default(uuid())
+  title     String
+  category  String?
+  content   String
+  shortcut  String?
+  createdBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+}
+
+// =======================
+// CONTENT & MODERATION (MD-01 to MD-08)
+// =======================
+
+model FeedPost {
+  id         String        @id @default(uuid())
+  authorId   String
+  businessId String?
+  caption    String?
+  mediaUrls  String[]
+  status     ContentStatus @default(ACTIVE)
+  removedAt  DateTime?
+  removedBy  String?
+  reasonCode String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@index([authorId])
+  @@index([status])
+}
+
+model Story {
+  id         String        @id @default(uuid())
+  authorId   String
+  businessId String?
+  mediaUrl   String
+  expiresAt  DateTime
+  status     ContentStatus @default(ACTIVE)
+  removedAt  DateTime?
+  removedBy  String?
+  reasonCode String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@index([authorId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model Review {
+  id           String        @id @default(uuid())
+  orderId      String?
+  authorId     String
+  businessId   String?
+  riderId      String?
+  rating       Int
+  comment      String?
+  isSuspicious Boolean       @default(false)
+  status       ContentStatus @default(ACTIVE)
+  removedAt    DateTime?
+  removedBy    String?
+  reasonCode   String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([authorId])
+  @@index([businessId])
+  @@index([riderId])
+  @@index([status])
+}
+
+model AbuseReport {
+  id          String               @id @default(uuid())
+  targetType  AbuseTargetType
+  targetId    String
+  reporterId  String
+  reason      ModerationReasonCode
+  details     String?
+  status      AbuseReportStatus    @default(PENDING)
+  resolution  String?
+  resolvedBy  String?
+  resolvedAt  DateTime?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@index([targetType, targetId])
+  @@index([status])
+  @@index([reason])
+}
+
+model ModerationAction {
+  id           String                @id @default(uuid())
+  targetType   AbuseTargetType
+  targetId     String
+  userId       String?
+  action       ModerationActionType
+  reasonCode   ModerationReasonCode
+  details      String?
+  moderatorId  String
+  appealStatus AppealStatus?         @default(NONE)
+  createdAt    DateTime              @default(now())
+
+  appeals      ModerationAppeal[]
+
+  @@index([targetType, targetId])
+  @@index([userId])
+  @@index([moderatorId])
+}
+
+model ModerationAppeal {
+  id                  String           @id @default(uuid())
+  actionId            String
+  action              ModerationAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  userId              String
+  reason              String
+  status              AppealStatus     @default(PENDING)
+  originalModeratorId String
+  decidedBy           String?
+  decidedAt           DateTime?
+  decisionReason      String?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  @@index([actionId])
+  @@index([status])
+  @@index([userId])
+}
+
+model UserRestriction {
+  id              String          @id @default(uuid())
+  userId          String
+  type            RestrictionType @default(ALL)
+  reason          String
+  restrictedUntil DateTime
+  appliedBy       String
+  isActive        Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([userId])
+  @@index([isActive])
+}
+
+model BlockedTerm {
+  id        String   @id @default(uuid())
+  term      String   @unique
+  pattern   String?
+  category  String?
+  createdBy String
+  createdAt DateTime @default(now())
+
+  @@index([term])
 }
 
 // =======================

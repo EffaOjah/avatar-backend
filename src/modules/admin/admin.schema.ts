@@ -486,3 +486,192 @@ export const exportFinanceReportSchema = z.object({
     format: z.enum(['CSV', 'XLSX', 'PDF']).default('CSV'),
   }),
 });
+
+// ── Support Admin ────────────────────────────────────────────────────────────
+
+export const ticketsQuerySchema = z.object({
+  query: z.object({
+    status: z.enum(['OPEN', 'PENDING', 'ON_HOLD', 'RESOLVED', 'CLOSED']).optional(),
+    priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
+    category: z.enum(['SERVICE', 'DELIVERY', 'PAYMENT', 'CONDUCT', 'SAFETY', 'ACCOUNT', 'OTHER']).optional(),
+    source: z.enum(['CUSTOMER', 'BUSINESS', 'RIDER']).optional(),
+    assigneeId: z.string().uuid().optional(),
+    customerId: z.string().uuid().optional(),
+    slaBreached: z
+      .string()
+      .optional()
+      .transform((v) => (v === 'true' ? true : v === 'false' ? false : undefined)),
+    cursor: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  }),
+});
+
+export const createTicketSchema = z.object({
+  body: z.object({
+    source: z.enum(['CUSTOMER', 'BUSINESS', 'RIDER']).default('CUSTOMER'),
+    category: z.enum(['SERVICE', 'DELIVERY', 'PAYMENT', 'CONDUCT', 'SAFETY', 'ACCOUNT', 'OTHER']),
+    priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).default('MEDIUM'),
+    subject: z.string().min(5, 'Subject must be at least 5 characters'),
+    body: z.string().min(10, 'Message body must be at least 10 characters'),
+    customerId: z.string().uuid().optional(),
+    orderId: z.string().uuid().optional(),
+    assigneeId: z.string().uuid().optional(),
+    tags: z.array(z.string()).optional(),
+    attachments: z.array(z.string().url()).optional(),
+  }),
+});
+
+export const updateTicketSchema = z.object({
+  body: z.object({
+    status: z.enum(['OPEN', 'PENDING', 'ON_HOLD', 'RESOLVED', 'CLOSED']).optional(),
+    priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
+    assigneeId: z.string().uuid().nullable().optional(),
+    tags: z.array(z.string()).optional(),
+  }),
+});
+
+export const ticketMessageSchema = z.object({
+  body: z.object({
+    body: z.string().min(1, 'Message body cannot be empty'),
+    isInternal: z.boolean().default(false),
+    attachments: z.array(z.string().url()).optional(),
+  }),
+});
+
+export const cannedResponseSchema = z.object({
+  body: z.object({
+    title: z.string().min(3, 'Title is required'),
+    category: z.string().optional(),
+    content: z.string().min(5, 'Content is required'),
+    shortcut: z.string().optional(),
+  }),
+});
+
+export const accountActionSchema = z.object({
+  body: z.object({
+    action: z.enum([
+      'UNLOCK_ACCOUNT',
+      'TRIGGER_PASSWORD_RESET',
+      'VERIFY_EMAIL',
+      'VERIFY_PHONE',
+      'FORCE_LOGOUT',
+      'TEMPORARY_SUSPEND',
+      'RESEND_DELIVERY_PIN',
+    ]),
+    reason: z.string().min(10, 'Reason must be at least 10 characters'),
+    until: z.string().datetime().optional(),
+    orderId: z.string().uuid().optional(),
+  }),
+});
+
+// ── Moderation Admin ─────────────────────────────────────────────────────────
+
+export const feedPostsQuerySchema = z.object({
+  query: z.object({
+    status: z.enum(['ACTIVE', 'HIDDEN', 'REMOVED']).optional(),
+    authorId: z.string().uuid().optional(),
+    businessId: z.string().uuid().optional(),
+    cursor: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  }),
+});
+
+export const moderatePostSchema = z.object({
+  body: z.object({
+    action: z.enum(['HIDE', 'REMOVE', 'RESTORE']),
+    reasonCode: z.enum(['SPAM', 'HARASSMENT', 'HATE', 'NUDITY', 'VIOLENCE', 'SCAM', 'COUNTERFEIT', 'OTHER']).optional(),
+    details: z.string().optional(),
+  }),
+});
+
+export const storiesQuerySchema = z.object({
+  query: z.object({
+    status: z.enum(['ACTIVE', 'HIDDEN', 'REMOVED']).optional(),
+    expired: z
+      .string()
+      .optional()
+      .transform((v) => (v === 'true' ? true : v === 'false' ? false : undefined)),
+    cursor: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  }),
+});
+
+export const removeStorySchema = z.object({
+  body: z.object({
+    reasonCode: z.enum(['SPAM', 'HARASSMENT', 'HATE', 'NUDITY', 'VIOLENCE', 'SCAM', 'COUNTERFEIT', 'OTHER']),
+    details: z.string().optional(),
+  }),
+});
+
+export const reviewsQuerySchema = z.object({
+  query: z.object({
+    status: z.enum(['ACTIVE', 'HIDDEN', 'REMOVED']).optional(),
+    isSuspicious: z
+      .string()
+      .optional()
+      .transform((v) => (v === 'true' ? true : v === 'false' ? false : undefined)),
+    businessId: z.string().uuid().optional(),
+    riderId: z.string().uuid().optional(),
+    minRating: z.coerce.number().int().min(1).max(5).optional(),
+    maxRating: z.coerce.number().int().min(1).max(5).optional(),
+    cursor: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  }),
+});
+
+export const moderateReviewSchema = z.object({
+  body: z.object({
+    action: z.enum(['HIDE', 'REMOVE', 'RESTORE', 'FLAG_SUSPICIOUS']),
+    reasonCode: z.enum(['SPAM', 'HARASSMENT', 'HATE', 'NUDITY', 'VIOLENCE', 'SCAM', 'COUNTERFEIT', 'OTHER']).optional(),
+    details: z.string().optional(),
+  }),
+});
+
+export const abuseReportsQuerySchema = z.object({
+  query: z.object({
+    status: z.enum(['PENDING', 'RESOLVED', 'DISMISSED', 'ESCALATED']).optional(),
+    targetType: z.enum(['FEED_POST', 'STORY', 'REVIEW', 'USER', 'BUSINESS']).optional(),
+    reason: z.enum(['SPAM', 'HARASSMENT', 'HATE', 'NUDITY', 'VIOLENCE', 'SCAM', 'COUNTERFEIT', 'OTHER']).optional(),
+    cursor: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  }),
+});
+
+export const resolveAbuseReportSchema = z.object({
+  body: z.object({
+    resolution: z.enum(['DISMISSED', 'REMOVED', 'STRIKE', 'ESCALATE']),
+    reasonCode: z.enum(['SPAM', 'HARASSMENT', 'HATE', 'NUDITY', 'VIOLENCE', 'SCAM', 'COUNTERFEIT', 'OTHER']).optional(),
+    notes: z.string().optional(),
+  }),
+});
+
+export const applyUserRestrictionSchema = z.object({
+  body: z.object({
+    type: z.enum(['POSTING', 'COMMENTING', 'ALL']),
+    reason: z.string().min(10, 'Reason must be at least 10 characters'),
+    restrictedUntil: z.string().datetime(),
+  }),
+});
+
+export const appealsQuerySchema = z.object({
+  query: z.object({
+    status: z.enum(['NONE', 'PENDING', 'APPROVED', 'REJECTED']).optional(),
+    cursor: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  }),
+});
+
+export const decideAppealSchema = z.object({
+  body: z.object({
+    decision: z.enum(['APPROVED', 'REJECTED']),
+    decisionReason: z.string().min(10, 'Decision reason must be at least 10 characters'),
+  }),
+});
+
+export const createBlockedTermSchema = z.object({
+  body: z.object({
+    term: z.string().min(2, 'Term must be at least 2 characters'),
+    pattern: z.string().optional(),
+    category: z.string().optional(),
+  }),
+});

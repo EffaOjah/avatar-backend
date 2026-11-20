@@ -27,6 +27,20 @@ import {
   AdminReconciliationService,
   AdminFinanceAnalyticsService,
 } from './admin-finance.service';
+import {
+  AdminTicketsService,
+  AdminAccountActionsService,
+  AdminSupportAnalyticsService,
+} from './admin-support.service';
+import {
+  AdminContentService,
+  AdminReviewsService,
+  AdminAbuseReportsService,
+  AdminUserRestrictionsService,
+  AdminModerationAppealsService,
+  AdminBlockedTermsService,
+  AdminModerationAnalyticsService,
+} from './admin-moderation.service';
 
 /** Thin wrapper: send success response */
 const ok = (res: Response, data: unknown, status = 200) =>
@@ -1371,6 +1385,439 @@ export class AdminFinanceAnalyticsController {
         req.headers['x-request-id'] as string,
       );
       ok(res, data, 201);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUPPORT — TICKETS (SP-01, SP-02, SP-07)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminTicketsController {
+  static async listTickets(req: AdminRequest, res: Response) {
+    try {
+      const { status, priority, category, source, assigneeId, customerId, slaBreached, cursor, limit } = req.query as any;
+      const data = await AdminTicketsService.listTickets({
+        status,
+        priority,
+        category,
+        source,
+        assigneeId,
+        customerId,
+        slaBreached: slaBreached === 'true' ? true : slaBreached === 'false' ? false : undefined,
+        cursor,
+        limit: limit ? parseInt(limit, 10) : 20,
+      });
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async getTicket(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      ok(res, await AdminTicketsService.getTicketById(req.params.id as string, admin.role));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async createTicket(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminTicketsService.createTicket(
+        req.body,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data, 201);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async updateTicket(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminTicketsService.updateTicket(
+        req.params.id as string,
+        req.body,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async addMessage(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminTicketsService.addMessage(
+        req.params.id as string,
+        req.body,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data, 201);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async listCannedResponses(req: AdminRequest, res: Response) {
+    try {
+      const { category } = req.query as { category?: string };
+      ok(res, await AdminTicketsService.listCannedResponses(category));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async createCannedResponse(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminTicketsService.createCannedResponse(req.body, admin.id);
+      ok(res, data, 201);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUPPORT — ACCOUNT ACTIONS (SP-05)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminAccountActionsController {
+  static async performAction(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const { action, reason, until, orderId } = req.body;
+      const data = await AdminAccountActionsService.performAccountAction(
+        req.params.id as string,
+        action,
+        { reason, until, orderId },
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUPPORT — ANALYTICS (SP-08)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminSupportAnalyticsController {
+  static async getMetrics(req: AdminRequest, res: Response) {
+    try {
+      const { from, to } = req.query as any;
+      ok(res, await AdminSupportAnalyticsService.getSupportMetrics({ from, to }));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MODERATION — CONTENT (MD-01, MD-02)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminContentController {
+  static async listFeedPosts(req: AdminRequest, res: Response) {
+    try {
+      const { status, authorId, businessId, cursor, limit } = req.query as any;
+      ok(
+        res,
+        await AdminContentService.listFeedPosts({
+          status,
+          authorId,
+          businessId,
+          cursor,
+          limit: limit ? parseInt(limit, 10) : 20,
+        }),
+      );
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async moderatePost(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const { action, reasonCode, details } = req.body;
+      const data = await AdminContentService.moderatePost(
+        req.params.id as string,
+        action,
+        reasonCode,
+        details,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async listStories(req: AdminRequest, res: Response) {
+    try {
+      const { status, expired, cursor, limit } = req.query as any;
+      ok(
+        res,
+        await AdminContentService.listStories({
+          status,
+          expired: expired === 'true' ? true : expired === 'false' ? false : undefined,
+          cursor,
+          limit: limit ? parseInt(limit, 10) : 20,
+        }),
+      );
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async removeStory(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const { reasonCode, details } = req.body;
+      const data = await AdminContentService.removeStory(
+        req.params.id as string,
+        reasonCode,
+        details,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MODERATION — REVIEWS (MD-04)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminReviewsController {
+  static async listReviews(req: AdminRequest, res: Response) {
+    try {
+      const { status, isSuspicious, businessId, riderId, minRating, maxRating, cursor, limit } = req.query as any;
+      ok(
+        res,
+        await AdminReviewsService.listReviews({
+          status,
+          isSuspicious: isSuspicious === 'true' ? true : isSuspicious === 'false' ? false : undefined,
+          businessId,
+          riderId,
+          minRating: minRating ? parseInt(minRating, 10) : undefined,
+          maxRating: maxRating ? parseInt(maxRating, 10) : undefined,
+          cursor,
+          limit: limit ? parseInt(limit, 10) : 20,
+        }),
+      );
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async moderateReview(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const { action, reasonCode, details } = req.body;
+      const data = await AdminReviewsService.moderateReview(
+        req.params.id as string,
+        action,
+        reasonCode,
+        details,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MODERATION — ABUSE REPORTS (MD-03, MD-06)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminAbuseReportsController {
+  static async listReports(req: AdminRequest, res: Response) {
+    try {
+      const { status, targetType, reason, cursor, limit } = req.query as any;
+      ok(
+        res,
+        await AdminAbuseReportsService.listReports({
+          status,
+          targetType,
+          reason,
+          cursor,
+          limit: limit ? parseInt(limit, 10) : 20,
+        }),
+      );
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async resolveReport(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminAbuseReportsService.resolveReport(
+        req.params.id as string,
+        req.body,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MODERATION — USER RESTRICTIONS (MD-05)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminUserRestrictionsController {
+  static async applyRestriction(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const data = await AdminUserRestrictionsService.applyRestriction(
+        req.params.id as string,
+        req.body,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data, 201);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async listRestrictions(req: AdminRequest, res: Response) {
+    try {
+      const { userId } = req.query as { userId?: string };
+      ok(res, await AdminUserRestrictionsService.listRestrictions(userId));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MODERATION — APPEALS (MD-07)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminModerationAppealsController {
+  static async listAppeals(req: AdminRequest, res: Response) {
+    try {
+      const { status, cursor, limit } = req.query as any;
+      ok(
+        res,
+        await AdminModerationAppealsService.listAppeals({
+          status,
+          cursor,
+          limit: limit ? parseInt(limit, 10) : 20,
+        }),
+      );
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async decideAppeal(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const { decision, decisionReason } = req.body;
+      const data = await AdminModerationAppealsService.decideAppeal(
+        req.params.id as string,
+        decision,
+        decisionReason,
+        admin.id,
+        admin.role,
+        req.ip,
+        req.headers['x-request-id'] as string,
+      );
+      ok(res, data);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MODERATION — BLOCKED TERMS (MD-08)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminBlockedTermsController {
+  static async listTerms(req: AdminRequest, res: Response) {
+    try {
+      ok(res, await AdminBlockedTermsService.listTerms());
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async addTerm(req: AdminRequest, res: Response) {
+    try {
+      const admin = req.admin!;
+      const { term, pattern, category } = req.body;
+      const data = await AdminBlockedTermsService.addTerm(term, pattern, category, admin.id);
+      ok(res, data, 201);
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+
+  static async removeTerm(req: AdminRequest, res: Response) {
+    try {
+      ok(res, await AdminBlockedTermsService.removeTerm(req.params.id as string));
+    } catch (e: any) {
+      fail(res, e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MODERATION — ANALYTICS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class AdminModerationAnalyticsController {
+  static async getMetrics(req: AdminRequest, res: Response) {
+    try {
+      const { from, to } = req.query as any;
+      ok(res, await AdminModerationAnalyticsService.getModerationMetrics({ from, to }));
     } catch (e: any) {
       fail(res, e);
     }

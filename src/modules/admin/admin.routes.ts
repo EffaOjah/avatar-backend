@@ -27,6 +27,18 @@ import {
   AdminPayoutsController,
   AdminReconciliationController,
   AdminFinanceAnalyticsController,
+  // Support Admin
+  AdminTicketsController,
+  AdminAccountActionsController,
+  AdminSupportAnalyticsController,
+  // Moderation Admin
+  AdminContentController,
+  AdminReviewsController,
+  AdminAbuseReportsController,
+  AdminUserRestrictionsController,
+  AdminModerationAppealsController,
+  AdminBlockedTermsController,
+  AdminModerationAnalyticsController,
 } from './admin.controller';
 import {
   adminLoginSchema,
@@ -81,6 +93,26 @@ import {
   triggerReconciliationSchema,
   resolveReconciliationFlagSchema,
   exportFinanceReportSchema,
+  // Support Admin schemas
+  ticketsQuerySchema,
+  createTicketSchema,
+  updateTicketSchema,
+  ticketMessageSchema,
+  cannedResponseSchema,
+  accountActionSchema,
+  // Moderation Admin schemas
+  feedPostsQuerySchema,
+  moderatePostSchema,
+  storiesQuerySchema,
+  removeStorySchema,
+  reviewsQuerySchema,
+  moderateReviewSchema,
+  abuseReportsQuerySchema,
+  resolveAbuseReportSchema,
+  applyUserRestrictionSchema,
+  appealsQuerySchema,
+  decideAppealSchema,
+  createBlockedTermSchema,
 } from './admin.schema';
 
 const router = Router();
@@ -507,6 +539,142 @@ router.post('/exports/finance',
   requirePermission('finance_reports:export'),
   validate(exportFinanceReportSchema),
   AdminFinanceAnalyticsController.exportReport,
+);
+
+// ── Support: Tickets (SP-01, SP-02, SP-07) ────────────────────────────────────
+router.get('/tickets',
+  requirePermission('tickets:read'),
+  validate(ticketsQuerySchema),
+  AdminTicketsController.listTickets,
+);
+router.post('/tickets',
+  requirePermission('tickets:manage'),
+  validate(createTicketSchema),
+  AdminTicketsController.createTicket,
+);
+router.get('/tickets/:id',
+  requirePermission('tickets:read'),
+  AdminTicketsController.getTicket,
+);
+router.patch('/tickets/:id',
+  requirePermission('tickets:manage'),
+  validate(updateTicketSchema),
+  AdminTicketsController.updateTicket,
+);
+router.post('/tickets/:id/messages',
+  requirePermission('tickets:manage'),
+  validate(ticketMessageSchema),
+  AdminTicketsController.addMessage,
+);
+router.get('/canned-responses',
+  requirePermission('tickets:manage'),
+  AdminTicketsController.listCannedResponses,
+);
+router.post('/canned-responses',
+  requirePermission('tickets:manage'),
+  validate(cannedResponseSchema),
+  AdminTicketsController.createCannedResponse,
+);
+
+// ── Support: Account Actions (SP-05) ──────────────────────────────────────────
+router.post('/users/:id/account-actions',
+  requirePermission('users:manage'),
+  validate(accountActionSchema),
+  AdminAccountActionsController.performAction,
+);
+
+// ── Support: Analytics (SP-08) ────────────────────────────────────────────────
+router.get('/analytics/support',
+  requirePermission('analytics:read:support'),
+  validate(analyticsQuerySchema),
+  AdminSupportAnalyticsController.getMetrics,
+);
+
+// ── Moderation: Content & Feed (MD-01, MD-02) ─────────────────────────────────
+router.get('/content/feed',
+  requirePermission('content:read'),
+  validate(feedPostsQuerySchema),
+  AdminContentController.listFeedPosts,
+);
+router.post('/content/feed/:id/moderate',
+  requirePermission('content:moderate'),
+  validate(moderatePostSchema),
+  AdminContentController.moderatePost,
+);
+router.get('/content/stories',
+  requirePermission('content:read'),
+  validate(storiesQuerySchema),
+  AdminContentController.listStories,
+);
+router.post('/content/stories/:id/remove',
+  requirePermission('content:moderate'),
+  validate(removeStorySchema),
+  AdminContentController.removeStory,
+);
+
+// ── Moderation: Reviews (MD-04) ───────────────────────────────────────────────
+router.get('/reviews',
+  requirePermission('reviews:read'),
+  validate(reviewsQuerySchema),
+  AdminReviewsController.listReviews,
+);
+router.post('/reviews/:id/moderate',
+  requirePermission('reviews:moderate'),
+  validate(moderateReviewSchema),
+  AdminReviewsController.moderateReview,
+);
+
+// ── Moderation: Abuse Reports & Restrictions (MD-03, MD-05, MD-06) ─────────────
+router.get('/abuse-reports',
+  requirePermission('abuse_reports:read'),
+  validate(abuseReportsQuerySchema),
+  AdminAbuseReportsController.listReports,
+);
+router.post('/abuse-reports/:id/resolve',
+  requirePermission('abuse_reports:manage'),
+  validate(resolveAbuseReportSchema),
+  AdminAbuseReportsController.resolveReport,
+);
+router.post('/users/:id/restrictions',
+  requirePermission('abuse_reports:manage'),
+  validate(applyUserRestrictionSchema),
+  AdminUserRestrictionsController.applyRestriction,
+);
+router.get('/users/restrictions',
+  requirePermission('abuse_reports:read'),
+  AdminUserRestrictionsController.listRestrictions,
+);
+
+// ── Moderation: Appeals & Blocked Terms (MD-07, MD-08) ─────────────────────────
+router.get('/moderation/appeals',
+  requirePermission('content:moderate'),
+  validate(appealsQuerySchema),
+  AdminModerationAppealsController.listAppeals,
+);
+router.post('/moderation/appeals/:id/decide',
+  requirePermission('content:moderate'),
+  validate(decideAppealSchema),
+  AdminModerationAppealsController.decideAppeal,
+);
+router.get('/moderation/blocked-terms',
+  requirePermission('content:moderate'),
+  AdminBlockedTermsController.listTerms,
+);
+router.post('/moderation/blocked-terms',
+  requirePermission('content:moderate'),
+  validate(createBlockedTermSchema),
+  AdminBlockedTermsController.addTerm,
+);
+router.delete('/moderation/blocked-terms/:id',
+  requirePermission('content:moderate'),
+  AdminBlockedTermsController.removeTerm,
+);
+
+// ── Moderation: Analytics ─────────────────────────────────────────────────────
+router.get('/analytics/moderation',
+  requirePermission('analytics:read:moderation'),
+  validate(analyticsQuerySchema),
+  AdminModerationAnalyticsController.getMetrics,
 );
 
 export default router;

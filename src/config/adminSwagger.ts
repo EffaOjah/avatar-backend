@@ -205,6 +205,8 @@ export const adminSwaggerOptions = {
       { name: 'Admin Dashboard', description: 'High-level real-time operational and platform KPIs' },
       { name: 'Admin Operations', description: 'Real-time order tracking, rider reassignment, delivery PIN regeneration, incidents, disputes, and operational analytics' },
       { name: 'Admin Finance', description: 'Financial transactions, ledger entries, wallet management, maker-checker adjustments, refund queue, payout batches, reconciliation, and revenue analytics' },
+      { name: 'Admin Support', description: 'Customer and partner support tickets, conversation threads, SLA timers, canned responses, and account tools' },
+      { name: 'Admin Moderation', description: 'Feed & story content moderation, reviews, abuse report queue, strikes, user restrictions, and appeals' },
     ],
     paths: {
       '/auth/login': {
@@ -1933,6 +1935,512 @@ export const adminSwaggerOptions = {
           },
           responses: {
             '201': { description: 'Export job initiated' },
+          },
+        },
+      },
+      '/tickets': {
+        get: {
+          summary: 'Ticket Queue (SP-01)',
+          description: 'Support tickets queue with category, priority, assignee, and SLA flags.',
+          tags: ['Admin Support'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'status', schema: { type: 'string', enum: ['OPEN', 'PENDING', 'ON_HOLD', 'RESOLVED', 'CLOSED'] } },
+            { in: 'query', name: 'priority', schema: { type: 'string', enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] } },
+            { in: 'query', name: 'category', schema: { type: 'string' } },
+            { in: 'query', name: 'source', schema: { type: 'string', enum: ['CUSTOMER', 'BUSINESS', 'RIDER'] } },
+            { in: 'query', name: 'slaBreached', schema: { type: 'boolean' } },
+            { in: 'query', name: 'cursor', schema: { type: 'string' } },
+            { in: 'query', name: 'limit', schema: { type: 'integer', default: 20 } },
+          ],
+          responses: {
+            '200': { description: 'Ticket list' },
+          },
+        },
+        post: {
+          summary: 'Create Support Ticket (SP-01)',
+          tags: ['Admin Support'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['category', 'subject', 'body'],
+                  properties: {
+                    source: { type: 'string', enum: ['CUSTOMER', 'BUSINESS', 'RIDER'], default: 'CUSTOMER' },
+                    category: { type: 'string', enum: ['SERVICE', 'DELIVERY', 'PAYMENT', 'CONDUCT', 'SAFETY', 'ACCOUNT', 'OTHER'] },
+                    priority: { type: 'string', enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'], default: 'MEDIUM' },
+                    subject: { type: 'string', minLength: 5 },
+                    body: { type: 'string', minLength: 10 },
+                    customerId: { type: 'string', format: 'uuid' },
+                    orderId: { type: 'string', format: 'uuid' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '201': { description: 'Ticket created' },
+          },
+        },
+      },
+      '/tickets/{id}': {
+        get: {
+          summary: 'Get Ticket Details & Thread (SP-02)',
+          description: 'Conversation messages and history. Internal notes are excluded for non-staff.',
+          tags: ['Admin Support'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'Ticket thread details' },
+            '404': { description: 'Ticket not found' },
+          },
+        },
+        patch: {
+          summary: 'Update Ticket (SP-01)',
+          tags: ['Admin Support'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    status: { type: 'string', enum: ['OPEN', 'PENDING', 'ON_HOLD', 'RESOLVED', 'CLOSED'] },
+                    priority: { type: 'string', enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] },
+                    assigneeId: { type: 'string', format: 'uuid', nullable: true },
+                    tags: { type: 'array', items: { type: 'string' } },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Ticket updated' },
+          },
+        },
+      },
+      '/tickets/{id}/messages': {
+        post: {
+          summary: 'Add Reply or Internal Note (SP-02)',
+          tags: ['Admin Support'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['body'],
+                  properties: {
+                    body: { type: 'string', minLength: 1 },
+                    isInternal: { type: 'boolean', default: false },
+                    attachments: { type: 'array', items: { type: 'string' } },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '201': { description: 'Message added to thread' },
+          },
+        },
+      },
+      '/canned-responses': {
+        get: {
+          summary: 'List Canned Responses (SP-07)',
+          tags: ['Admin Support'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          responses: {
+            '200': { description: 'Canned response templates' },
+          },
+        },
+        post: {
+          summary: 'Create Canned Response (SP-07)',
+          tags: ['Admin Support'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['title', 'content'],
+                  properties: {
+                    title: { type: 'string' },
+                    category: { type: 'string' },
+                    content: { type: 'string' },
+                    shortcut: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '201': { description: 'Template created' },
+          },
+        },
+      },
+      '/users/{id}/account-actions': {
+        post: {
+          summary: 'Perform Account Action (SP-05)',
+          description: 'Unlock account, manual email/phone verify, temporary suspension, force logout, or resend PIN.',
+          tags: ['Admin Support'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['action', 'reason'],
+                  properties: {
+                    action: {
+                      type: 'string',
+                      enum: [
+                        'UNLOCK_ACCOUNT',
+                        'TRIGGER_PASSWORD_RESET',
+                        'VERIFY_EMAIL',
+                        'VERIFY_PHONE',
+                        'FORCE_LOGOUT',
+                        'TEMPORARY_SUSPEND',
+                        'RESEND_DELIVERY_PIN',
+                      ],
+                    },
+                    reason: { type: 'string', minLength: 10 },
+                    until: { type: 'string', format: 'date-time' },
+                    orderId: { type: 'string', format: 'uuid' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Account action performed' },
+            '422': { description: 'Suspension exceeds configured threshold' },
+          },
+        },
+      },
+      '/analytics/support': {
+        get: {
+          summary: 'Support Metrics & SLA Overview (SP-08)',
+          tags: ['Admin Support'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'from', schema: { type: 'string', format: 'date-time' } },
+            { in: 'query', name: 'to', schema: { type: 'string', format: 'date-time' } },
+          ],
+          responses: {
+            '200': { description: 'Support metrics overview' },
+          },
+        },
+      },
+      '/content/feed': {
+        get: {
+          summary: 'Browse Feed Posts for Moderation (MD-01)',
+          tags: ['Admin Moderation'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'status', schema: { type: 'string', enum: ['ACTIVE', 'HIDDEN', 'REMOVED'] } },
+            { in: 'query', name: 'authorId', schema: { type: 'string', format: 'uuid' } },
+            { in: 'query', name: 'cursor', schema: { type: 'string' } },
+            { in: 'query', name: 'limit', schema: { type: 'integer', default: 20 } },
+          ],
+          responses: {
+            '200': { description: 'Feed posts list' },
+          },
+        },
+      },
+      '/content/feed/{id}/moderate': {
+        post: {
+          summary: 'Moderate Feed Post (MD-01)',
+          description: 'Hide, remove, or restore feed post. Removal requires mandatory reasonCode.',
+          tags: ['Admin Moderation'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['action'],
+                  properties: {
+                    action: { type: 'string', enum: ['HIDE', 'REMOVE', 'RESTORE'] },
+                    reasonCode: { type: 'string', enum: ['SPAM', 'HARASSMENT', 'HATE', 'NUDITY', 'VIOLENCE', 'SCAM', 'COUNTERFEIT', 'OTHER'] },
+                    details: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Post moderated' },
+          },
+        },
+      },
+      '/content/stories': {
+        get: {
+          summary: 'List Stories for Moderation (MD-02)',
+          tags: ['Admin Moderation'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'status', schema: { type: 'string', enum: ['ACTIVE', 'HIDDEN', 'REMOVED'] } },
+            { in: 'query', name: 'expired', schema: { type: 'boolean' } },
+            { in: 'query', name: 'cursor', schema: { type: 'string' } },
+            { in: 'query', name: 'limit', schema: { type: 'integer', default: 20 } },
+          ],
+          responses: {
+            '200': { description: 'Stories list' },
+          },
+        },
+      },
+      '/content/stories/{id}/remove': {
+        post: {
+          summary: 'Remove Story (MD-02)',
+          tags: ['Admin Moderation'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['reasonCode'],
+                  properties: {
+                    reasonCode: { type: 'string', enum: ['SPAM', 'HARASSMENT', 'HATE', 'NUDITY', 'VIOLENCE', 'SCAM', 'COUNTERFEIT', 'OTHER'] },
+                    details: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Story removed' },
+          },
+        },
+      },
+      '/reviews': {
+        get: {
+          summary: 'List Reviews for Moderation (MD-04)',
+          tags: ['Admin Moderation'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'status', schema: { type: 'string', enum: ['ACTIVE', 'HIDDEN', 'REMOVED'] } },
+            { in: 'query', name: 'isSuspicious', schema: { type: 'boolean' } },
+            { in: 'query', name: 'minRating', schema: { type: 'integer' } },
+            { in: 'query', name: 'maxRating', schema: { type: 'integer' } },
+            { in: 'query', name: 'cursor', schema: { type: 'string' } },
+            { in: 'query', name: 'limit', schema: { type: 'integer', default: 20 } },
+          ],
+          responses: {
+            '200': { description: 'Reviews list' },
+          },
+        },
+      },
+      '/reviews/{id}/moderate': {
+        post: {
+          summary: 'Moderate Review (MD-04)',
+          tags: ['Admin Moderation'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['action'],
+                  properties: {
+                    action: { type: 'string', enum: ['HIDE', 'REMOVE', 'RESTORE', 'FLAG_SUSPICIOUS'] },
+                    reasonCode: { type: 'string' },
+                    details: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Review status updated' },
+          },
+        },
+      },
+      '/abuse-reports': {
+        get: {
+          summary: 'Abuse Reports Queue (MD-03)',
+          tags: ['Admin Moderation'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'status', schema: { type: 'string', enum: ['PENDING', 'RESOLVED', 'DISMISSED', 'ESCALATED'] } },
+            { in: 'query', name: 'targetType', schema: { type: 'string' } },
+            { in: 'query', name: 'cursor', schema: { type: 'string' } },
+            { in: 'query', name: 'limit', schema: { type: 'integer', default: 20 } },
+          ],
+          responses: {
+            '200': { description: 'Abuse reports queue' },
+          },
+        },
+      },
+      '/abuse-reports/{id}/resolve': {
+        post: {
+          summary: 'Resolve Abuse Report (MD-03, MD-06)',
+          description: 'Dismiss, remove content, apply strike, or escalate. Strikes accumulate toward suspension threshold.',
+          tags: ['Admin Moderation'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['resolution'],
+                  properties: {
+                    resolution: { type: 'string', enum: ['DISMISSED', 'REMOVED', 'STRIKE', 'ESCALATE'] },
+                    reasonCode: { type: 'string' },
+                    notes: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Report resolved' },
+          },
+        },
+      },
+      '/users/{id}/restrictions': {
+        post: {
+          summary: 'Apply User Posting/Commenting Restriction (MD-05)',
+          tags: ['Admin Moderation'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['type', 'reason', 'restrictedUntil'],
+                  properties: {
+                    type: { type: 'string', enum: ['POSTING', 'COMMENTING', 'ALL'] },
+                    reason: { type: 'string', minLength: 10 },
+                    restrictedUntil: { type: 'string', format: 'date-time' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '201': { description: 'Restriction applied' },
+          },
+        },
+      },
+      '/moderation/appeals': {
+        get: {
+          summary: 'Appeals Queue (MD-07)',
+          tags: ['Admin Moderation'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'status', schema: { type: 'string', enum: ['NONE', 'PENDING', 'APPROVED', 'REJECTED'] } },
+            { in: 'query', name: 'cursor', schema: { type: 'string' } },
+            { in: 'query', name: 'limit', schema: { type: 'integer', default: 20 } },
+          ],
+          responses: {
+            '200': { description: 'Appeals list' },
+          },
+        },
+      },
+      '/moderation/appeals/{id}/decide': {
+        post: {
+          summary: 'Decide Content Removal Appeal (MD-07)',
+          description: 'Approves or rejects appeal. Must be reviewed by a different moderator than the original decider.',
+          tags: ['Admin Moderation'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['decision', 'decisionReason'],
+                  properties: {
+                    decision: { type: 'string', enum: ['APPROVED', 'REJECTED'] },
+                    decisionReason: { type: 'string', minLength: 10 },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '200': { description: 'Appeal decided' },
+            '409': { description: 'Original moderator cannot decide their own appeal' },
+          },
+        },
+      },
+      '/moderation/blocked-terms': {
+        get: {
+          summary: 'List Blocked Terms (MD-08)',
+          tags: ['Admin Moderation'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          responses: {
+            '200': { description: 'Blocked terms list' },
+          },
+        },
+        post: {
+          summary: 'Add Blocked Term (MD-08)',
+          tags: ['Admin Moderation'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['term'],
+                  properties: {
+                    term: { type: 'string', minLength: 2 },
+                    pattern: { type: 'string' },
+                    category: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '201': { description: 'Blocked term added' },
+          },
+        },
+      },
+      '/moderation/blocked-terms/{id}': {
+        delete: {
+          summary: 'Remove Blocked Term (MD-08)',
+          tags: ['Admin Moderation'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [{ in: 'path', name: 'id', required: true, schema: { type: 'string' } }],
+          responses: {
+            '200': { description: 'Blocked term removed' },
+          },
+        },
+      },
+      '/analytics/moderation': {
+        get: {
+          summary: 'Moderation Metrics Overview',
+          tags: ['Admin Moderation'],
+          security: [{ adminBearerAuth: [] }, { adminCookieAuth: [] }],
+          parameters: [
+            { in: 'query', name: 'from', schema: { type: 'string', format: 'date-time' } },
+            { in: 'query', name: 'to', schema: { type: 'string', format: 'date-time' } },
+          ],
+          responses: {
+            '200': { description: 'Moderation metrics' },
           },
         },
       },
